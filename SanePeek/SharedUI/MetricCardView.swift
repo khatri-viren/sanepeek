@@ -41,8 +41,8 @@ struct MetricCardView<Trailing: View>: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(model.primaryValue)
                             .font(MetricTypography.primaryMetric)
-                            .contentTransition(.numericText())
-                            .animation(reduceMotion ? nil : .default, value: model.primaryValue)
+                            .contentTransition(.opacity)
+                            .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: model.primaryValue)
 
                         if let secondary = model.secondaryValue {
                             Text(secondary)
