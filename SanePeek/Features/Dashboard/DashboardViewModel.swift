@@ -9,11 +9,13 @@ final class DashboardViewModel {
     private(set) var cards: [MetricCardModel] = []
 
     private let feed: any DashboardTickFeed
+    private let formatterProvider: @MainActor () -> MetricFormatter
     @ObservationIgnored
     private nonisolated(unsafe) var consumeTask: Task<Void, Never>?
 
-    init(feed: any DashboardTickFeed) {
+    init(feed: any DashboardTickFeed, formatterProvider: @escaping @MainActor () -> MetricFormatter = { MetricFormatter() }) {
         self.feed = feed
+        self.formatterProvider = formatterProvider
         start()
     }
 
@@ -33,16 +35,17 @@ final class DashboardViewModel {
 
     private func apply(_ tick: DashboardTick) {
         let snapshot = tick.snapshot
+        let formatter = formatterProvider()
 
         var next: [MetricCardModel] = [
-            MetricCardMapping.cpuCard(snapshot.cpu, history: tick.cpuHistory),
-            MetricCardMapping.memoryCard(snapshot.memory, history: tick.memoryHistory),
-            MetricCardMapping.storageCard(snapshot.storage),
-            MetricCardMapping.networkCard(snapshot.network, history: tick.networkDownloadHistory),
-            MetricCardMapping.batteryCard(snapshot.battery)
+            MetricCardMapping.cpuCard(snapshot.cpu, history: tick.cpuHistory, formatter: formatter),
+            MetricCardMapping.memoryCard(snapshot.memory, history: tick.memoryHistory, formatter: formatter),
+            MetricCardMapping.storageCard(snapshot.storage, formatter: formatter),
+            MetricCardMapping.networkCard(snapshot.network, history: tick.networkDownloadHistory, formatter: formatter),
+            MetricCardMapping.batteryCard(snapshot.battery, formatter: formatter)
         ]
 
-        if let gpuCard = MetricCardMapping.gpuCard(snapshot.gpu, history: tick.gpuHistory) {
+        if let gpuCard = MetricCardMapping.gpuCard(snapshot.gpu, history: tick.gpuHistory, formatter: formatter) {
             next.append(gpuCard)
         }
 

@@ -8,6 +8,7 @@ import SwiftUI
 @main
 struct SanePeekApp: App {
     @State private var appState: AppState
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         self.init(dependencies: .forLaunch())
@@ -20,11 +21,16 @@ struct SanePeekApp: App {
     var body: some Scene {
         WindowGroup {
             DashboardView(appState: appState)
+                .preferredColorScheme(appState.settingsStore.appearance.colorScheme)
         }
         .defaultSize(width: 840, height: 520)
+        .onChange(of: scenePhase) { _, newPhase in
+            appState.handlePollingVisibilityChange(isVisible: newPhase == .active)
+        }
 
         Settings {
-            SettingsView()
+            SettingsView(settingsStore: appState.settingsStore)
+                .preferredColorScheme(appState.settingsStore.appearance.colorScheme)
         }
     }
 }
