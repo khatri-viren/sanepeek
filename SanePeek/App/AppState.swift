@@ -16,9 +16,18 @@ enum AppRuntime: String, Equatable, Sendable {
 /// boundary in place now lets previews and tests avoid global singletons.
 struct AppDependencies: Sendable {
     let runtime: AppRuntime
+    let fixtureSnapshot: MetricsSnapshot?
+
+    init(runtime: AppRuntime, fixtureSnapshot: MetricsSnapshot? = nil) {
+        self.runtime = runtime
+        self.fixtureSnapshot = fixtureSnapshot
+    }
 
     static let live = Self(runtime: .live)
-    static let preview = Self(runtime: .preview)
+    static let preview = Self(
+        runtime: .preview,
+        fixtureSnapshot: MetricFixtures.dashboard()
+    )
 }
 
 @MainActor
