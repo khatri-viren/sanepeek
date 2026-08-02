@@ -155,6 +155,248 @@ struct SanePeekTests {
         #expect(AppDependencies.live.fixtureSnapshot == nil)
         #expect(AppDependencies.preview.fixtureSnapshot?.containsAvailableMetric == true)
     }
+
+    @Test("Metric history retains recent samples and rejects late samples")
+    func metricHistoryRetainsRecentSamplesAndRejectsLateSamples() {
+        var history = MetricRingBuffer<Double>(retention: 60, capacity: 2)
+        let start = MetricTimestamp.zero
+
+        let acceptedFirst = history.append(MetricSample(timestamp: start, value: 1))
+        let acceptedSecond = history.append(MetricSample(timestamp: start.advanced(by: 30), value: 2))
+        let acceptedThird = history.append(MetricSample(timestamp: start.advanced(by: 60), value: 3))
+
+        #expect(acceptedFirst)
+        #expect(acceptedSecond)
+        #expect(acceptedThird)
+
+        #expect(history.samples.map(\.value) == [2, 3])
+        #expect(history.samples.first?.timestamp == start.advanced(by: 30))
+        #expect(history.samples.last?.timestamp == start.advanced(by: 60))
+
+        let rejectedLateSample = history.append(MetricSample(timestamp: start.advanced(by: 45), value: 99))
+
+        #expect(!rejectedLateSample)
+        #expect(history.samples.map(\.value) == [2, 3])
+    }
+
+    @Test("Metric history expires samples outside its retention window")
+    func metricHistoryExpiresSamplesOutsideRetentionWindow() {
+        var history = MetricRingBuffer<Double>(retention: 60, capacity: 10)
+        let start = MetricTimestamp.zero
+
+        _ = history.append(MetricSample(timestamp: start, value: 1))
+        _ = history.append(MetricSample(timestamp: start.advanced(by: 60), value: 2))
+        _ = history.append(MetricSample(timestamp: start.advanced(by: 61), value: 3))
+
+        #expect(history.samples.map(\.value) == [2, 3])
+        #expect(history.oldest?.timestamp == start.advanced(by: 60))
+    }
+
+    @Test("CPU utilization uses monotonic counter deltas")
+    func cpuUtilizationUsesMonotonicCounterDeltas() {
+        let previous = CPUCounterSample(
+            timestamp: .zero,
+            userTicks: 10,
+            systemTicks: 10,
+            idleTicks: 80
+        )
+        let current = CPUCounterSample(
+            timestamp: .zero.advanced(by: 2),
+            userTicks: 20,
+            systemTicks: 20,
+            idleTicks: 160
+        )
+
+        let result = CPUUtilizationCalculator.calculate(from: previous, to: current)
+
+        #expect(result.isAvailable)
+        #expect(abs((result.value ?? -1) - 0.2) < 0.0001)
+    }
+
+    @Test("CPU counter resets and zero-duration samples are unavailable")
+    func cpuCounterResetsAndZeroDurationSamplesAreUnavailable() {
+        let previous = CPUCounterSample(
+            timestamp: .zero,
+            userTicks: 10,
+            systemTicks: 10,
+            idleTicks: 80
+        )
+        let reset = CPUCounterSample(
+            timestamp: .zero.advanced(by: 1),
+            userTicks: 1,
+            systemTicks: 1,
+            idleTicks: 1
+        )
+        let sameTimestamp = CPUCounterSample(
+            timestamp: .zero,
+            userTicks: 11,
+            systemTicks: 11,
+            idleTicks: 81
+        )
+
+        let resetResult = CPUUtilizationCalculator.calculate(from: previous, to: reset)
+        let zeroDurationResult = CPUUtilizationCalculator.calculate(from: previous, to: sameTimestamp)
+
+        #expect(resetResult.availability == .unavailable(.noData))
+        #expect(zeroDurationResult.availability == .unavailable(.noData))
+    }
+
+    @Test("CPU counter rollover uses an explicit counter maximum")
+    func cpuCounterRolloverUsesExplicitCounterMaximum() {
+        let previous = CPUCounterSample(
+            timestamp: .zero,
+            userTicks: 98,
+            systemTicks: 0,
+            idleTicks: 0
+        )
+        let current = CPUCounterSample(
+            timestamp: .zero.advanced(by: 1),
+            userTicks: 2,
+            systemTicks: 0,
+            idleTicks: 0
+        )
+
+        let result = CPUUtilizationCalculator.calculate(
+            from: previous,
+            to: current,
+            counterMaximum: 100
+        )
+
+        #expect(result.value == 1)
+    }
+
+    @Test("Network throughput excludes loopback and invalid interfaces")
+    func networkThroughputExcludesLoopbackAndInvalidInterfaces() {
+        let previous = NetworkCounterSample(
+            timestamp: .zero,
+            interfaces: [
+                NetworkInterfaceCounter(name: "en0", downloadBytes: 100, uploadBytes: 50),
+                NetworkInterfaceCounter(
+                    name: "lo0",
+                    downloadBytes: 10_000,
+                    uploadBytes: 10_000,
+                    isLoopback: true
+                ),
+                NetworkInterfaceCounter(
+                    name: "invalid0",
+                    downloadBytes: 20_000,
+                    uploadBytes: 20_000,
+                    isValid: false
+                )
+            ]
+        )
+        let current = NetworkCounterSample(
+            timestamp: .zero.advanced(by: 2),
+            interfaces: [
+                NetworkInterfaceCounter(name: "en0", downloadBytes: 300, uploadBytes: 90),
+                NetworkInterfaceCounter(
+                    name: "lo0",
+                    downloadBytes: 110_000,
+                    uploadBytes: 110_000,
+                    isLoopback: true
+                ),
+                NetworkInterfaceCounter(
+                    name: "invalid0",
+                    downloadBytes: 220_000,
+                    uploadBytes: 220_000,
+                    isValid: false
+                )
+            ]
+        )
+
+        let result = NetworkThroughputCalculator.calculate(from: previous, to: current)
+
+        #expect(result.value?.downloadBytesPerSecond == 100)
+        #expect(result.value?.uploadBytesPerSecond == 20)
+    }
+
+    @Test("Network counters handle reset and rollover")
+    func networkCountersHandleResetAndRollover() {
+        let previous = NetworkCounterSample(
+            timestamp: .zero,
+            interfaces: [
+                NetworkInterfaceCounter(name: "en0", downloadBytes: 98, uploadBytes: 90)
+            ]
+        )
+        let reset = NetworkCounterSample(
+            timestamp: .zero.advanced(by: 1),
+            interfaces: [
+                NetworkInterfaceCounter(name: "en0", downloadBytes: 2, uploadBytes: 1)
+            ]
+        )
+
+        let resetResult = NetworkThroughputCalculator.calculate(from: previous, to: reset)
+        #expect(resetResult.availability == .unavailable(.noData))
+
+        let rolloverResult = NetworkThroughputCalculator.calculate(
+            from: previous,
+            to: reset,
+            counterMaximum: 100
+        )
+
+        #expect(rolloverResult.value?.downloadBytesPerSecond == 5)
+        #expect(rolloverResult.value?.uploadBytesPerSecond == 12)
+    }
+
+    @Test("Memory page conversion produces byte-based snapshots")
+    func memoryPageConversionProducesByteBasedSnapshots() {
+        let pages = MemoryPageCounts(usedPages: 3, availablePages: 2)
+
+        let result = MemoryByteConverter.snapshot(
+            from: pages,
+            pageSize: 4_096,
+            timestamp: .zero,
+            pressure: .warning
+        )
+
+        #expect(result.value?.usedBytes == 12_288)
+        #expect(result.value?.availableBytes == 8_192)
+        #expect(result.value?.pressure == .warning)
+    }
+
+    @Test("Metric formatter supports decimal and binary byte units")
+    func metricFormatterSupportsDecimalAndBinaryByteUnits() {
+        let decimal = MetricFormatter(byteUnitSystem: .decimal)
+        let binary = MetricFormatter(byteUnitSystem: .binary)
+
+        #expect(decimal.bytes(1_500) == "1.5 kB")
+        #expect(binary.bytes(1_048_576) == "1 MiB")
+    }
+
+    @Test("Metric formatter clamps percentages and preserves unavailable messages")
+    func metricFormatterClampsPercentagesAndPreservesUnavailableMessages() {
+        let formatter = MetricFormatter()
+        let unavailable: MetricResult<Double> = .unavailable(.noData)
+        let failed: MetricResult<Double> = .failed(MetricFailure(kind: .permissionDenied))
+
+        #expect(formatter.percentage(-0.25) == "0%")
+        #expect(formatter.percentage(1.25) == "100%")
+        #expect(formatter.percentage(0.425, fractionDigits: 1) == "42.5%")
+        #expect(formatter.percentage(unavailable) == "No data is available yet.")
+        #expect(formatter.percentage(failed) == "This metric is unavailable due to system permissions.")
+    }
+
+    @Test("Metric formatter handles duration and temperature units")
+    func metricFormatterHandlesDurationAndTemperatureUnits() {
+        let celsius = MetricFormatter(temperatureUnit: .celsius)
+        let fahrenheit = MetricFormatter(temperatureUnit: .fahrenheit)
+
+        #expect(celsius.duration(59) == "59s")
+        #expect(celsius.duration(3_661) == "1h 1m")
+        #expect(celsius.temperature(21.5) == "21.5 °C")
+        #expect(fahrenheit.temperature(0) == "32 °F")
+    }
+
+    @Test("Metric formatter renders unavailable and failed values safely")
+    func metricFormatterRendersUnavailableAndFailedValuesSafely() {
+        let formatter = MetricFormatter()
+        let noData: MetricResult<UInt64> = .unavailable(.noData)
+        let invalid: MetricResult<Double> = .failed(MetricFailure(kind: .invalidData))
+
+        #expect(formatter.bytes(noData) == "No data is available yet.")
+        #expect(formatter.temperature(invalid) == "The metric data is unavailable.")
+        #expect(formatter.duration(.nan) == "Unavailable")
+    }
 }
 
 private struct FixtureCPUReader: CPUReader {
