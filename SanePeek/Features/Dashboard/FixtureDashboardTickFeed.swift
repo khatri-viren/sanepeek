@@ -1,10 +1,10 @@
 import Foundation
 
 /// Ticks a baseline snapshot forward deterministically (sine-based variation,
-/// not randomness) so the fixture-driven dashboard has something to animate
-/// before Phase 5 wires in the real engine.
+/// not randomness) so preview and fixture-driven UI-test runs have something
+/// to animate. `LiveDashboardTickFeed` is the equivalent for `.live` runtime.
 @MainActor
-final class FixtureDashboardTickFeed {
+final class FixtureDashboardTickFeed: DashboardTickFeed {
     private let interval: TimeInterval
     private let baseline: MetricsSnapshot
     private static let historyLimit = 60

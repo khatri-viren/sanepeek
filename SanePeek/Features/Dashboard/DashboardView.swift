@@ -15,8 +15,7 @@ struct DashboardView: View {
 
     init(appState: AppState) {
         self.appState = appState
-        let baseline = appState.dependencies.fixtureSnapshot ?? MetricFixtures.dashboard()
-        _viewModel = State(initialValue: DashboardViewModel(feed: FixtureDashboardTickFeed(baseline: baseline)))
+        _viewModel = State(initialValue: DashboardViewModel(feed: appState.dependencies.makeDashboardTickFeed()))
     }
 
     var body: some View {

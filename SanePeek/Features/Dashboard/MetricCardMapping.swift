@@ -7,9 +7,11 @@ import SwiftUI
 /// CPU, storage, network, battery, or GPU. Memory is the one exception — its
 /// status comes directly from the OS-driven `MemoryPressure` state. Network
 /// and GPU have no natural threshold signal, so they never show a status.
+///
+/// Every function takes a `MetricFormatter`, defaulted to decimal/Celsius, so
+/// a future unit-preference setting (Phase 6) can be threaded through without
+/// changing this mapping layer again.
 nonisolated enum MetricCardMapping {
-    private static let formatter = MetricFormatter()
-
     private static let cpuWarningFraction = 0.80
     private static let cpuCriticalFraction = 0.95
     private static let storageWarningFraction = 0.85
@@ -17,7 +19,11 @@ nonisolated enum MetricCardMapping {
     private static let batteryWarningFraction = 0.20
     private static let batteryCriticalFraction = 0.10
 
-    static func cpuCard(_ snapshot: CPUSnapshot?, history: [Double]) -> MetricCardModel {
+    static func cpuCard(
+        _ snapshot: CPUSnapshot?,
+        history: [Double],
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> MetricCardModel {
         let title = "CPU"
         guard let snapshot, snapshot.availability.isAvailable else {
             return unavailableCard(id: .cpu, title: title, systemImage: "cpu", color: MetricPalette.cpu, availability: snapshot?.availability)
@@ -48,7 +54,11 @@ nonisolated enum MetricCardMapping {
         )
     }
 
-    static func memoryCard(_ snapshot: MemorySnapshot?, history: [Double]) -> MetricCardModel {
+    static func memoryCard(
+        _ snapshot: MemorySnapshot?,
+        history: [Double],
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> MetricCardModel {
         let title = "Memory"
         guard let snapshot, snapshot.availability.isAvailable else {
             return unavailableCard(id: .memory, title: title, systemImage: "memorychip", color: MetricPalette.memory, availability: snapshot?.availability)
@@ -81,7 +91,10 @@ nonisolated enum MetricCardMapping {
         )
     }
 
-    static func storageCard(_ snapshot: StorageSnapshot?) -> MetricCardModel {
+    static func storageCard(
+        _ snapshot: StorageSnapshot?,
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> MetricCardModel {
         let title = "Storage"
         guard let snapshot, snapshot.availability.isAvailable else {
             return unavailableCard(id: .storage, title: title, systemImage: "internaldrive", color: MetricPalette.storage, availability: snapshot?.availability)
@@ -124,14 +137,18 @@ nonisolated enum MetricCardMapping {
         )
     }
 
-    static func networkCard(_ snapshot: NetworkSnapshot?, history: [Double]) -> MetricCardModel {
+    static func networkCard(
+        _ snapshot: NetworkSnapshot?,
+        history: [Double],
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> MetricCardModel {
         let title = "Network"
         guard let snapshot, snapshot.availability.isAvailable else {
             return unavailableCard(id: .network, title: title, systemImage: "network", color: MetricPalette.network, availability: snapshot?.availability)
         }
 
-        let primary = throughputText(snapshot.downloadBytesPerSecond)
-        let secondary = snapshot.uploadBytesPerSecond.map { "\u{2191} \(throughputText($0))" }
+        let primary = throughputText(snapshot.downloadBytesPerSecond, formatter: formatter)
+        let secondary = snapshot.uploadBytesPerSecond.map { "\u{2191} \(throughputText($0, formatter: formatter))" }
 
         return MetricCardModel(
             id: .network,
@@ -149,7 +166,10 @@ nonisolated enum MetricCardMapping {
         )
     }
 
-    static func batteryCard(_ snapshot: BatterySnapshot?) -> MetricCardModel {
+    static func batteryCard(
+        _ snapshot: BatterySnapshot?,
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> MetricCardModel {
         let title = "Battery"
         guard let snapshot, snapshot.availability.isAvailable else {
             return unavailableCard(id: .battery, title: title, systemImage: "battery.100", color: MetricPalette.battery, availability: snapshot?.availability)
@@ -163,7 +183,7 @@ nonisolated enum MetricCardMapping {
         }
 
         let primary = formatter.percentage(snapshot.percentage)
-        let secondary = batterySecondary(snapshot)
+        let secondary = batterySecondary(snapshot, formatter: formatter)
 
         return MetricCardModel(
             id: .battery,
@@ -183,7 +203,11 @@ nonisolated enum MetricCardMapping {
 
     /// Returns nil to hide the card entirely when utilization cannot be reliably
     /// read, rather than showing misleading data.
-    static func gpuCard(_ snapshot: GPUSnapshot?, history: [Double]) -> MetricCardModel? {
+    static func gpuCard(
+        _ snapshot: GPUSnapshot?,
+        history: [Double],
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> MetricCardModel? {
         guard let snapshot, snapshot.availability.isAvailable, let utilization = snapshot.utilization else {
             return nil
         }
@@ -247,12 +271,12 @@ nonisolated enum MetricCardMapping {
         return nil
     }
 
-    private static func throughputText(_ bytesPerSecond: Double?) -> String {
+    private static func throughputText(_ bytesPerSecond: Double?, formatter: MetricFormatter) -> String {
         guard let bytesPerSecond, bytesPerSecond.isFinite, bytesPerSecond >= 0 else { return "Unavailable" }
         return "\(formatter.bytes(UInt64(bytesPerSecond)))/s"
     }
 
-    private static func batterySecondary(_ snapshot: BatterySnapshot) -> String? {
+    private static func batterySecondary(_ snapshot: BatterySnapshot, formatter: MetricFormatter) -> String? {
         var parts: [String] = []
         if let state = snapshot.chargingState {
             parts.append(chargingStateText(state))

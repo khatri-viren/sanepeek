@@ -61,5 +61,6 @@ struct MetricCardView<Trailing: View>: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(model.accessibilityLabel)
         .accessibilityValue(model.accessibilityValue)
+        .accessibilityIdentifier("dashboard.card.\(model.id.rawValue)")
     }
 }

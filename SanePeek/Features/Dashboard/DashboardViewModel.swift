@@ -1,17 +1,18 @@
 import Observation
 
-/// Exposes presentation-ready card state to `DashboardView`. Owns its own
-/// fixture feed for now — Phase 5 decides how a live engine gets wired in.
+/// Exposes presentation-ready card state to `DashboardView`. Consumes
+/// whichever `DashboardTickFeed` it's handed — fixture-backed for previews
+/// and UI tests, `LiveDashboardTickFeed` for `.live` runtime.
 @MainActor
 @Observable
 final class DashboardViewModel {
     private(set) var cards: [MetricCardModel] = []
 
-    private let feed: FixtureDashboardTickFeed
+    private let feed: any DashboardTickFeed
     @ObservationIgnored
     private nonisolated(unsafe) var consumeTask: Task<Void, Never>?
 
-    init(feed: FixtureDashboardTickFeed) {
+    init(feed: any DashboardTickFeed) {
         self.feed = feed
         start()
     }

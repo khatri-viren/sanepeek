@@ -142,4 +142,36 @@ nonisolated enum MetricFixtures {
             gpu: .unavailable(at: timestamp, reason: .unsupported)
         )
     }
+
+    /// Otherwise-healthy dashboard where only the GPU is unavailable, matching
+    /// most real Macs (no reliable IOAccelerator utilization counter). Used to
+    /// verify the GPU card hides while its five siblings stay visible.
+    static func gpuUnsupported(at timestamp: MetricTimestamp = .zero) -> MetricsSnapshot {
+        let baseline = dashboard(at: timestamp)
+        return MetricsSnapshot(
+            timestamp: timestamp,
+            cpu: baseline.cpu,
+            memory: baseline.memory,
+            storage: baseline.storage,
+            network: baseline.network,
+            battery: baseline.battery,
+            gpu: .unavailable(at: timestamp, reason: .unsupported)
+        )
+    }
+
+    /// Mixed health: CPU and Memory stay healthy while Storage and Network
+    /// report failures, so a UI test can assert both states render
+    /// side by side without either masking the other.
+    static func mixedFailure(at timestamp: MetricTimestamp = .zero) -> MetricsSnapshot {
+        let baseline = dashboard(at: timestamp)
+        return MetricsSnapshot(
+            timestamp: timestamp,
+            cpu: baseline.cpu,
+            memory: baseline.memory,
+            storage: .unavailable(at: timestamp, reason: .noData),
+            network: .unavailable(at: timestamp, reason: .temporarilyUnavailable),
+            battery: baseline.battery,
+            gpu: baseline.gpu
+        )
+    }
 }

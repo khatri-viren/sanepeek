@@ -10,7 +10,7 @@ struct SanePeekApp: App {
     @State private var appState: AppState
 
     init() {
-        self.init(dependencies: .live)
+        self.init(dependencies: .forLaunch())
     }
 
     init(dependencies: AppDependencies) {
