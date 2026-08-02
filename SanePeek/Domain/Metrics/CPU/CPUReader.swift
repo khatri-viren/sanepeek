@@ -3,6 +3,7 @@ import Foundation
 import IOKit
 import IOKit.ps
 import Network
+import os
 
 nonisolated protocol CPUReader: MetricReader where Snapshot == CPUSnapshot {}
 
@@ -40,6 +41,7 @@ actor LiveCPUReader: CPUReader {
     private let adapter: any CPUSystemAdapter
     private let counterMaximum: UInt64?
     private var previousCounter: CPUCounterSample?
+    private let logger = Logger(subsystem: "com.sanepeek.app", category: "CPUReader")
 
     init(
         adapter: any CPUSystemAdapter = MachCPUSystemAdapter(),
@@ -73,6 +75,7 @@ actor LiveCPUReader: CPUReader {
         case let .unavailable(reason):
             return .unavailable(reason)
         case let .failed(failure):
+            logger.warning("read failed: \(failure.kind.rawValue, privacy: .public)")
             return .failed(failure)
         }
     }

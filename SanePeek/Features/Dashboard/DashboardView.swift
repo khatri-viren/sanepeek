@@ -69,6 +69,7 @@ struct DashboardView: View {
         }
         .padding(24)
         .frame(minWidth: 720, minHeight: 420)
+        .dynamicTypeSize(.large ... .xxxLarge)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("dashboard.root")
     }

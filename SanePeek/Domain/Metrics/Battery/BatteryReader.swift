@@ -3,6 +3,7 @@ import Foundation
 import IOKit
 import IOKit.ps
 import Network
+import os
 
 nonisolated protocol BatteryReader: MetricReader where Snapshot == BatterySnapshot {}
 
@@ -50,6 +51,7 @@ nonisolated protocol BatterySystemAdapter: Sendable {
 
 nonisolated struct LiveBatteryReader: BatteryReader {
     private let adapter: any BatterySystemAdapter
+    private let logger = Logger(subsystem: "com.sanepeek.app", category: "BatteryReader")
 
     init(adapter: any BatterySystemAdapter = IOKitBatterySystemAdapter()) {
         self.adapter = adapter
@@ -70,6 +72,7 @@ nonisolated struct LiveBatteryReader: BatteryReader {
                       maximumCapacity > 0,
                       currentCapacity <= maximumCapacity
                 else {
+                    logger.warning("read failed: \(MetricFailureKind.invalidData.rawValue, privacy: .public)")
                     return .failed(MetricFailure(kind: .invalidData))
                 }
                 percentage = Double(currentCapacity) / Double(maximumCapacity)
@@ -80,11 +83,13 @@ nonisolated struct LiveBatteryReader: BatteryReader {
             let healthPercentage: Double?
             if let designCapacity = sample.designCapacity {
                 guard designCapacity > 0 else {
+                    logger.warning("read failed: \(MetricFailureKind.invalidData.rawValue, privacy: .public)")
                     return .failed(MetricFailure(kind: .invalidData))
                 }
 
                 if let maximumCapacity = sample.maximumCapacity {
                     guard maximumCapacity >= 0 else {
+                        logger.warning("read failed: \(MetricFailureKind.invalidData.rawValue, privacy: .public)")
                         return .failed(MetricFailure(kind: .invalidData))
                     }
                     healthPercentage = min(
@@ -113,6 +118,7 @@ nonisolated struct LiveBatteryReader: BatteryReader {
         case let .unavailable(reason):
             return .unavailable(reason)
         case let .failed(failure):
+            logger.warning("read failed: \(failure.kind.rawValue, privacy: .public)")
             return .failed(failure)
         }
     }

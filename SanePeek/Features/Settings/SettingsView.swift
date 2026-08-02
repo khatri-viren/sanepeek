@@ -59,6 +59,7 @@ struct SettingsView: View {
         .frame(width: 420)
         .padding()
         .navigationTitle("Settings")
+        .dynamicTypeSize(.large ... .xxxLarge)
         .accessibilityIdentifier("settings.root")
         .onAppear { settingsStore.refreshLaunchAtLoginStatus() }
     }

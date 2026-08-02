@@ -8,6 +8,7 @@ struct MetricCardView<Trailing: View>: View {
     @ViewBuilder let trailing: () -> Trailing
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovering = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: MetricSpacing.headerSpacing) {
@@ -58,6 +59,9 @@ struct MetricCardView<Trailing: View>: View {
             }
         }
         .metricCardBackground()
+        .scaleEffect(isHovering ? 1.01 : 1)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isHovering)
+        .onHover { isHovering = $0 }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(model.accessibilityLabel)
         .accessibilityValue(model.accessibilityValue)

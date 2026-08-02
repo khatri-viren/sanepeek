@@ -3,6 +3,7 @@ import Foundation
 import IOKit
 import IOKit.ps
 import Network
+import os
 
 nonisolated protocol MemoryReader: MetricReader where Snapshot == MemorySnapshot {}
 
@@ -30,6 +31,7 @@ nonisolated protocol MemoryPressureSource: Sendable {
 actor LiveMemoryReader: MemoryReader {
     private let adapter: any MemorySystemAdapter
     private let pressureSource: any MemoryPressureSource
+    private let logger = Logger(subsystem: "com.sanepeek.app", category: "MemoryReader")
 
     init(
         adapter: any MemorySystemAdapter = MachMemorySystemAdapter(),
@@ -56,6 +58,7 @@ actor LiveMemoryReader: MemoryReader {
         case let .unavailable(reason):
             return .unavailable(reason)
         case let .failed(failure):
+            logger.warning("read failed: \(failure.kind.rawValue, privacy: .public)")
             return .failed(failure)
         }
     }

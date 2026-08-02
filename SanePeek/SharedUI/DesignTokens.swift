@@ -11,10 +11,15 @@ nonisolated enum MetricCornerRadius {
     static let card: CGFloat = 20
 }
 
+/// `primaryMetric` stays a fixed size — it's the hero digit display and the card
+/// grid is sized around it, so letting it scale with Dynamic Type would break
+/// layout. `secondaryMetric`/`label` are ordinary text and scale with the
+/// system text size, bounded by the `.dynamicTypeSize` clamp applied at the
+/// dashboard/settings roots.
 nonisolated enum MetricTypography {
     static let primaryMetric = Font.system(size: 52, weight: .semibold, design: .rounded)
-    static let secondaryMetric = Font.system(size: 15, weight: .medium, design: .rounded)
-    static let label = Font.system(size: 13, weight: .medium, design: .rounded)
+    static let secondaryMetric = Font.system(.subheadline, design: .rounded).weight(.medium)
+    static let label = Font.system(.caption, design: .rounded).weight(.medium)
 }
 
 /// Colors match the PRD's metric palette table. GPU has no assigned color in the

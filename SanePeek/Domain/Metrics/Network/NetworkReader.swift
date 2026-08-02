@@ -3,6 +3,7 @@ import Foundation
 import IOKit
 import IOKit.ps
 import Network
+import os
 
 nonisolated protocol NetworkReader: MetricReader where Snapshot == NetworkSnapshot {}
 
@@ -27,6 +28,7 @@ actor LiveNetworkReader: NetworkReader {
     private let adapter: any NetworkSystemAdapter
     private let counterMaximum: UInt64?
     private var previousCounter: NetworkCounterSample?
+    private let logger = Logger(subsystem: "com.sanepeek.app", category: "NetworkReader")
 
     init(
         adapter: any NetworkSystemAdapter = DarwinNetworkSystemAdapter(),
@@ -65,6 +67,7 @@ actor LiveNetworkReader: NetworkReader {
         case let .unavailable(reason):
             return .unavailable(reason)
         case let .failed(failure):
+            logger.warning("read failed: \(failure.kind.rawValue, privacy: .public)")
             return .failed(failure)
         }
     }

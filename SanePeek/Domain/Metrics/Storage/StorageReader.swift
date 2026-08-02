@@ -3,6 +3,7 @@ import Foundation
 import IOKit
 import IOKit.ps
 import Network
+import os
 
 nonisolated protocol StorageReader: MetricReader where Snapshot == StorageSnapshot {}
 
@@ -22,6 +23,7 @@ nonisolated protocol StorageSystemAdapter: Sendable {
 
 nonisolated struct LiveStorageReader: StorageReader {
     private let adapter: any StorageSystemAdapter
+    private let logger = Logger(subsystem: "com.sanepeek.app", category: "StorageReader")
 
     init(adapter: any StorageSystemAdapter = FoundationStorageSystemAdapter()) {
         self.adapter = adapter
@@ -34,6 +36,7 @@ nonisolated struct LiveStorageReader: StorageReader {
                 return .unavailable(.noData)
             }
             guard totalBytes > 0, availableBytes >= 0, availableBytes <= totalBytes else {
+                logger.warning("read failed: \(MetricFailureKind.invalidData.rawValue, privacy: .public)")
                 return .failed(MetricFailure(kind: .invalidData))
             }
 
@@ -48,6 +51,7 @@ nonisolated struct LiveStorageReader: StorageReader {
         case let .unavailable(reason):
             return .unavailable(reason)
         case let .failed(failure):
+            logger.warning("read failed: \(failure.kind.rawValue, privacy: .public)")
             return .failed(failure)
         }
     }

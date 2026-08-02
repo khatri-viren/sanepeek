@@ -3,6 +3,7 @@ import Foundation
 import IOKit
 import IOKit.ps
 import Network
+import os
 
 nonisolated protocol GPUReader: MetricReader where Snapshot == GPUSnapshot {}
 
@@ -34,6 +35,7 @@ nonisolated protocol GPUSystemAdapter: Sendable {
 
 nonisolated struct LiveGPUReader: GPUReader {
     private let adapter: any GPUSystemAdapter
+    private let logger = Logger(subsystem: "com.sanepeek.app", category: "GPUReader")
 
     init(adapter: any GPUSystemAdapter = IORegistryGPUAdapter()) {
         self.adapter = adapter
@@ -48,6 +50,7 @@ nonisolated struct LiveGPUReader: GPUReader {
         case let .available(sample):
             if let utilization = sample.utilization {
                 guard utilization.isFinite, (0...1).contains(utilization) else {
+                    logger.warning("read failed: \(MetricFailureKind.invalidData.rawValue, privacy: .public)")
                     return .failed(MetricFailure(kind: .invalidData))
                 }
             }
@@ -62,6 +65,7 @@ nonisolated struct LiveGPUReader: GPUReader {
         case let .unavailable(reason):
             return .unavailable(reason)
         case let .failed(failure):
+            logger.warning("read failed: \(failure.kind.rawValue, privacy: .public)")
             return .failed(failure)
         }
     }
