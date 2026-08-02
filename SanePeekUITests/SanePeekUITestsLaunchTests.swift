@@ -2,30 +2,26 @@
 //  SanePeekUITestsLaunchTests.swift
 //  SanePeekUITests
 //
-//  Created by Viren Khatri on 02/08/26.
-//
 
 import XCTest
 
+@MainActor
 final class SanePeekUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
+        false
     }
 
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
-    @MainActor
-    func testLaunch() throws {
+    func testLaunchShowsDashboardRoot() throws {
         let app = XCUIApplication()
         app.launch()
 
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
+        let dashboard = app.descendants(matching: .any)["dashboard.root"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 5))
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Launch Screen"

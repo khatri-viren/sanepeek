@@ -2,18 +2,25 @@
 //  SanePeekTests.swift
 //  SanePeekTests
 //
-//  Created by Viren Khatri on 02/08/26.
-//
 
 import Testing
 @testable import SanePeek
 
 struct SanePeekTests {
 
-    @Test func example() async throws {
-        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
-        // Swift Testing Documentation
-        // https://developer.apple.com/documentation/testing
+    @Test("App state defaults to live dependencies")
+    @MainActor
+    func appStateUsesLiveDependenciesByDefault() {
+        let appState = AppState()
+
+        #expect(appState.dependencies.runtime == .live)
     }
 
+    @Test("App state accepts preview dependencies")
+    @MainActor
+    func appStateAcceptsPreviewDependencies() {
+        let appState = AppState(dependencies: .preview)
+
+        #expect(appState.dependencies.runtime == .preview)
+    }
 }
