@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CORTEX_VAULT_ROOT=\"/Users/khatri_viren/Developer/Projects/sanepeek\" bun run \"/Users/khatri_viren/Developer/Projects/cortex/src/claude-hooks.ts\" session-start",
+            "command": "CORTEX_VAULT_ROOT=\"/Users/khatri_viren/Developer/Projects/sanepeek/notes-vault\" bun run \"/Users/khatri_viren/Developer/Projects/cortex/src/claude-hooks.ts\" session-start",
             "timeout": 5
           }
         ]
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "CORTEX_VAULT_ROOT=\"/Users/khatri_viren/Developer/Projects/sanepeek\" bun run \"/Users/khatri_viren/Developer/Projects/cortex/src/claude-hooks.ts\" reindex",
+            "command": "CORTEX_VAULT_ROOT=\"/Users/khatri_viren/Developer/Projects/sanepeek/notes-vault\" bun run \"/Users/khatri_viren/Developer/Projects/cortex/src/claude-hooks.ts\" reindex",
             "timeout": 3
           }
         ]

@@ -3,7 +3,7 @@
     "cortex": {
       "type": "stdio",
       "command": "bun",
-      "args": ["run", "/Users/khatri_viren/Developer/Projects/cortex/src/cli.ts", "mcp", "--vault", "/Users/khatri_viren/Developer/Projects/sanepeek"],
+      "args": ["run", "/Users/khatri_viren/Developer/Projects/cortex/src/cli.ts", "mcp", "--vault", "/Users/khatri_viren/Developer/Projects/sanepeek/notes-vault"],
       "env": {}
     }
   }

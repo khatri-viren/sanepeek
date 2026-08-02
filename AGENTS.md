@@ -5,15 +5,16 @@ requirements and durable project thinking live in a Cortex vault, not in this re
 
 ## Source of truth
 
-The Cortex vault at the parent directory (`..`, i.e. `sanepeek/`) is the source of truth
-for project documentation, including the PRD. Read docs from the vault, write docs to the
+The Cortex vault at the sibling directory `../notes-vault` is the source of truth for
+project documentation, including the PRD. Read docs from the vault, write docs to the
 vault, and treat any copy living in this repo as a stale duplicate. When this repo and the
 vault disagree, the vault is correct.
 
-Active vault: `..`, exposed through the `sanepeek` MCP server (registered in
-`~/.codex/config.toml` and this repo's `.mcp.json`). The vault also discovers this repo
-(`SanePeek`) as a workspace repository, so its Git history is queryable through the vault's
-`get_repo_history` / `get_repo_diff` tools without vaulting the Swift source as notes.
+Active vault: `../notes-vault`, exposed through the `sanepeek` MCP server (registered in
+`~/.codex/config.toml` and this repo's `.mcp.json`). The vault's workspace also discovers
+this repo (`SanePeek`) and the vault repo itself (`notes-vault`) as sibling workspace
+repositories, so both Git histories are queryable through the vault's `get_repo_history` /
+`get_repo_diff` tools without vaulting the Swift source as notes.
 
 ## What lives in the vault
 
@@ -54,10 +55,10 @@ can filter them.
   PRD) through MCP when one exists.
 - Treat stale revisions, stale file hashes, and vault diagnostics as signals to refetch
   context rather than overwrite newer work.
-- Commit the vault (the parent `sanepeek/` directory) automatically. Do not ask first and do
-  not wait for an explicit instruction — commit whenever a coherent unit of note work is
-  done, and regularly during longer sessions. Never leave vault changes uncommitted at the
-  end of a turn.
+- Commit the vault (`../notes-vault`, its own separate Git repo) automatically. Do not ask
+  first and do not wait for an explicit instruction — commit whenever a coherent unit of
+  note work is done, and regularly during longer sessions. Never leave vault changes
+  uncommitted at the end of a turn.
 - This applies to the vault only. Changes to this repo (`SanePeek/`) still need an explicit
   go-ahead before committing.
 
