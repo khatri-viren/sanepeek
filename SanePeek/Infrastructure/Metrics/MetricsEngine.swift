@@ -1,0 +1,423 @@
+import Foundation
+import os
+
+nonisolated enum MetricHistoryKind: CaseIterable, Hashable, Sendable {
+    case cpuUtilization
+    case memoryUsedBytes
+    case networkDownloadBytesPerSecond
+    case networkUploadBytesPerSecond
+    case gpuUtilization
+}
+
+actor MetricsEngine {
+    private let cpuReader: any CPUReader
+    private let memoryReader: any MemoryReader
+    private let storageReader: any StorageReader
+    private let networkReader: any NetworkReader
+    private let batteryReader: any BatteryReader
+    private let gpuReader: any GPUReader
+    private let clock: any MetricClock
+    private let fastScheduler: any MetricScheduler
+    private let slowScheduler: any MetricScheduler
+    private let logger: Logger
+    private let signposter: OSSignposter
+
+    private var cadencePolicy: CadencePolicy
+    private var history: [MetricHistoryKind: MetricRingBuffer<Double>]
+
+    private var fastTask: Task<Void, Never>?
+    private var slowTask: Task<Void, Never>?
+    private var isPaused = false
+    private var isStopped = false
+
+    private var lastGoodCPU: CPUSnapshot?
+    private var lastGoodMemory: MemorySnapshot?
+    private var lastGoodStorage: StorageSnapshot?
+    private var lastGoodNetwork: NetworkSnapshot?
+    private var lastGoodBattery: BatterySnapshot?
+    private var lastGoodGPU: GPUSnapshot?
+
+    private var publishedCPU: CPUSnapshot?
+    private var publishedMemory: MemorySnapshot?
+    private var publishedStorage: StorageSnapshot?
+    private var publishedNetwork: NetworkSnapshot?
+    private var publishedBattery: BatterySnapshot?
+    private var publishedGPU: GPUSnapshot?
+
+    private var lastPublishedMonotonicSeconds: TimeInterval = -Double.infinity
+    private var hasPublishedFirstSnapshot = false
+    private var launchSignpostState: OSSignpostIntervalState?
+
+    private var stream: AsyncStream<MetricsSnapshot>?
+    private var continuation: AsyncStream<MetricsSnapshot>.Continuation?
+
+    init(
+        cpuReader: any CPUReader = LiveCPUReader(),
+        memoryReader: any MemoryReader = LiveMemoryReader(),
+        storageReader: any StorageReader = LiveStorageReader(),
+        networkReader: any NetworkReader = LiveNetworkReader(),
+        batteryReader: any BatteryReader = LiveBatteryReader(),
+        gpuReader: any GPUReader = LiveGPUReader(),
+        clock: any MetricClock = SystemMetricClock(),
+        fastScheduler: any MetricScheduler = SystemMetricScheduler(),
+        slowScheduler: any MetricScheduler = SystemMetricScheduler(),
+        cadencePolicy: CadencePolicy = CadencePolicy(),
+        historyRetention: TimeInterval = 60,
+        historyCapacity: Int = 60,
+        logger: Logger = Logger(subsystem: "com.sanepeek.app", category: "MetricsEngine"),
+        signposter: OSSignposter = OSSignposter(subsystem: "com.sanepeek.app", category: "MetricsEngine")
+    ) {
+        self.cpuReader = cpuReader
+        self.memoryReader = memoryReader
+        self.storageReader = storageReader
+        self.networkReader = networkReader
+        self.batteryReader = batteryReader
+        self.gpuReader = gpuReader
+        self.clock = clock
+        self.fastScheduler = fastScheduler
+        self.slowScheduler = slowScheduler
+        self.cadencePolicy = cadencePolicy
+        self.logger = logger
+        self.signposter = signposter
+        self.history = Dictionary(
+            uniqueKeysWithValues: MetricHistoryKind.allCases.map {
+                ($0, MetricRingBuffer<Double>(retention: historyRetention, capacity: historyCapacity))
+            }
+        )
+    }
+
+    deinit {
+        fastTask?.cancel()
+        slowTask?.cancel()
+    }
+
+    // MARK: - Lifecycle
+
+    func start() {
+        guard !isStopped, fastTask == nil, slowTask == nil else { return }
+        isPaused = false
+        logger.info("MetricsEngine starting polling loops")
+        if !hasPublishedFirstSnapshot, launchSignpostState == nil {
+            launchSignpostState = signposter.beginInterval("Launch")
+        }
+        fastTask = Task { [weak self] in await self?.runFastLoop() }
+        slowTask = Task { [weak self] in await self?.runSlowLoop() }
+    }
+
+    func pause() {
+        guard !isStopped, !isPaused else { return }
+        logger.info("MetricsEngine pausing polling loops")
+        isPaused = true
+        cancelTasks()
+    }
+
+    func resume() {
+        guard !isStopped, isPaused else { return }
+        logger.info("MetricsEngine resuming polling loops")
+        start()
+    }
+
+    func stop() {
+        guard !isStopped else { return }
+        logger.info("MetricsEngine stopping")
+        isStopped = true
+        isPaused = false
+        cancelTasks()
+        continuation?.finish()
+    }
+
+    func updateCadence(_ policy: CadencePolicy) {
+        guard cadencePolicy != policy else { return }
+        logger.info("MetricsEngine updating cadence")
+        cadencePolicy = policy
+        guard !isStopped, !isPaused, fastTask != nil else { return }
+        fastTask?.cancel()
+        fastTask = Task { [weak self] in await self?.runFastLoop() }
+    }
+
+    private func cancelTasks() {
+        fastTask?.cancel()
+        slowTask?.cancel()
+        fastTask = nil
+        slowTask = nil
+    }
+
+    // MARK: - Publication
+
+    func snapshots() -> AsyncStream<MetricsSnapshot> {
+        if let stream {
+            return stream
+        }
+        let (newStream, newContinuation) = AsyncStream.makeStream(
+            of: MetricsSnapshot.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        stream = newStream
+        continuation = newContinuation
+        return newStream
+    }
+
+    func currentSnapshot() -> MetricsSnapshot {
+        combinedSnapshot(at: clock.now())
+    }
+
+    func history(for kind: MetricHistoryKind) -> [MetricSample<Double>] {
+        history[kind]?.samples ?? []
+    }
+
+    // MARK: - Polling loops
+
+    private func runFastLoop() async {
+        while !Task.isCancelled {
+            let tick = clock.now()
+            let cycleState = signposter.beginInterval("PollingCycle.fast")
+
+            async let cpuResult = readCPU(at: tick)
+            async let memoryResult = readMemory(at: tick)
+            async let networkResult = readNetwork(at: tick)
+            async let gpuResult = readGPU(at: tick)
+
+            updateFastMetrics(
+                cpu: await cpuResult,
+                memory: await memoryResult,
+                network: await networkResult,
+                gpu: await gpuResult,
+                at: tick
+            )
+            publish(at: tick)
+            signposter.endInterval("PollingCycle.fast", cycleState)
+
+            do {
+                try await fastScheduler.wait(for: cadencePolicy.interval(for: .cpu))
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func runSlowLoop() async {
+        while !Task.isCancelled {
+            let tick = clock.now()
+            let cycleState = signposter.beginInterval("PollingCycle.slow")
+
+            async let storageResult = readStorage(at: tick)
+            async let batteryResult = readBattery(at: tick)
+
+            updateSlowMetrics(
+                storage: await storageResult,
+                battery: await batteryResult,
+                at: tick
+            )
+            publish(at: tick)
+            signposter.endInterval("PollingCycle.slow", cycleState)
+
+            do {
+                try await slowScheduler.wait(for: cadencePolicy.interval(for: .storage))
+            } catch {
+                return
+            }
+        }
+    }
+
+    // MARK: - Reader cost signposts
+
+    private func readCPU(at tick: MetricTimestamp) async -> MetricResult<CPUSnapshot> {
+        let state = signposter.beginInterval("ReaderCost.cpu")
+        defer { signposter.endInterval("ReaderCost.cpu", state) }
+        return await cpuReader.read(at: tick)
+    }
+
+    private func readMemory(at tick: MetricTimestamp) async -> MetricResult<MemorySnapshot> {
+        let state = signposter.beginInterval("ReaderCost.memory")
+        defer { signposter.endInterval("ReaderCost.memory", state) }
+        return await memoryReader.read(at: tick)
+    }
+
+    private func readStorage(at tick: MetricTimestamp) async -> MetricResult<StorageSnapshot> {
+        let state = signposter.beginInterval("ReaderCost.storage")
+        defer { signposter.endInterval("ReaderCost.storage", state) }
+        return await storageReader.read(at: tick)
+    }
+
+    private func readNetwork(at tick: MetricTimestamp) async -> MetricResult<NetworkSnapshot> {
+        let state = signposter.beginInterval("ReaderCost.network")
+        defer { signposter.endInterval("ReaderCost.network", state) }
+        return await networkReader.read(at: tick)
+    }
+
+    private func readBattery(at tick: MetricTimestamp) async -> MetricResult<BatterySnapshot> {
+        let state = signposter.beginInterval("ReaderCost.battery")
+        defer { signposter.endInterval("ReaderCost.battery", state) }
+        return await batteryReader.read(at: tick)
+    }
+
+    private func readGPU(at tick: MetricTimestamp) async -> MetricResult<GPUSnapshot> {
+        let state = signposter.beginInterval("ReaderCost.gpu")
+        defer { signposter.endInterval("ReaderCost.gpu", state) }
+        return await gpuReader.read(at: tick)
+    }
+
+    // MARK: - Merge and history
+
+    private func updateFastMetrics(
+        cpu cpuResult: MetricResult<CPUSnapshot>,
+        memory memoryResult: MetricResult<MemorySnapshot>,
+        network networkResult: MetricResult<NetworkSnapshot>,
+        gpu gpuResult: MetricResult<GPUSnapshot>,
+        at tick: MetricTimestamp
+    ) {
+        publishedCPU = mergedCPU(cpuResult, at: tick)
+        publishedMemory = mergedMemory(memoryResult, at: tick)
+        publishedNetwork = mergedNetwork(networkResult, at: tick)
+        publishedGPU = mergedGPU(gpuResult, at: tick)
+
+        if case .available = cpuResult, let utilization = publishedCPU?.utilization {
+            history[.cpuUtilization]?.append(MetricSample(timestamp: tick, value: utilization))
+        }
+        if case .available = memoryResult, let usedBytes = publishedMemory?.usedBytes {
+            history[.memoryUsedBytes]?.append(MetricSample(timestamp: tick, value: Double(usedBytes)))
+        }
+        if case .available = networkResult {
+            if let download = publishedNetwork?.downloadBytesPerSecond {
+                history[.networkDownloadBytesPerSecond]?.append(MetricSample(timestamp: tick, value: download))
+            }
+            if let upload = publishedNetwork?.uploadBytesPerSecond {
+                history[.networkUploadBytesPerSecond]?.append(MetricSample(timestamp: tick, value: upload))
+            }
+        }
+        if case .available = gpuResult, let utilization = publishedGPU?.utilization {
+            history[.gpuUtilization]?.append(MetricSample(timestamp: tick, value: utilization))
+        }
+    }
+
+    private func updateSlowMetrics(
+        storage storageResult: MetricResult<StorageSnapshot>,
+        battery batteryResult: MetricResult<BatterySnapshot>,
+        at tick: MetricTimestamp
+    ) {
+        publishedStorage = mergedStorage(storageResult, at: tick)
+        publishedBattery = mergedBattery(batteryResult, at: tick)
+    }
+
+    private func mergedCPU(_ result: MetricResult<CPUSnapshot>, at tick: MetricTimestamp) -> CPUSnapshot {
+        if case let .available(snapshot) = result {
+            lastGoodCPU = snapshot
+            return snapshot
+        }
+        let previous = lastGoodCPU
+        return CPUSnapshot(
+            timestamp: tick,
+            availability: result.availability,
+            utilization: previous?.utilization,
+            logicalCoreCount: previous?.logicalCoreCount,
+            performanceCoreCount: previous?.performanceCoreCount,
+            efficiencyCoreCount: previous?.efficiencyCoreCount
+        )
+    }
+
+    private func mergedMemory(_ result: MetricResult<MemorySnapshot>, at tick: MetricTimestamp) -> MemorySnapshot {
+        if case let .available(snapshot) = result {
+            lastGoodMemory = snapshot
+            return snapshot
+        }
+        let previous = lastGoodMemory
+        return MemorySnapshot(
+            timestamp: tick,
+            availability: result.availability,
+            usedBytes: previous?.usedBytes,
+            availableBytes: previous?.availableBytes,
+            pressure: previous?.pressure
+        )
+    }
+
+    private func mergedStorage(_ result: MetricResult<StorageSnapshot>, at tick: MetricTimestamp) -> StorageSnapshot {
+        if case let .available(snapshot) = result {
+            lastGoodStorage = snapshot
+            return snapshot
+        }
+        let previous = lastGoodStorage
+        return StorageSnapshot(
+            timestamp: tick,
+            availability: result.availability,
+            usedBytes: previous?.usedBytes,
+            availableBytes: previous?.availableBytes,
+            totalBytes: previous?.totalBytes
+        )
+    }
+
+    private func mergedNetwork(_ result: MetricResult<NetworkSnapshot>, at tick: MetricTimestamp) -> NetworkSnapshot {
+        if case let .available(snapshot) = result {
+            lastGoodNetwork = snapshot
+            return snapshot
+        }
+        let previous = lastGoodNetwork
+        return NetworkSnapshot(
+            timestamp: tick,
+            availability: result.availability,
+            downloadBytesPerSecond: previous?.downloadBytesPerSecond,
+            uploadBytesPerSecond: previous?.uploadBytesPerSecond,
+            connectivity: previous?.connectivity,
+            interfaceNames: previous?.interfaceNames
+        )
+    }
+
+    private func mergedBattery(_ result: MetricResult<BatterySnapshot>, at tick: MetricTimestamp) -> BatterySnapshot {
+        if case let .available(snapshot) = result {
+            lastGoodBattery = snapshot
+            return snapshot
+        }
+        let previous = lastGoodBattery
+        return BatterySnapshot(
+            timestamp: tick,
+            availability: result.availability,
+            percentage: previous?.percentage,
+            chargingState: previous?.chargingState,
+            timeRemaining: previous?.timeRemaining,
+            healthPercentage: previous?.healthPercentage
+        )
+    }
+
+    private func mergedGPU(_ result: MetricResult<GPUSnapshot>, at tick: MetricTimestamp) -> GPUSnapshot {
+        if case let .available(snapshot) = result {
+            lastGoodGPU = snapshot
+            return snapshot
+        }
+        let previous = lastGoodGPU
+        return GPUSnapshot(
+            timestamp: tick,
+            availability: result.availability,
+            utilization: previous?.utilization,
+            name: previous?.name
+        )
+    }
+
+    private func combinedSnapshot(at timestamp: MetricTimestamp) -> MetricsSnapshot {
+        MetricsSnapshot(
+            timestamp: timestamp,
+            cpu: publishedCPU,
+            memory: publishedMemory,
+            storage: publishedStorage,
+            network: publishedNetwork,
+            battery: publishedBattery,
+            gpu: publishedGPU
+        )
+    }
+
+    private func publish(at tick: MetricTimestamp) {
+        guard tick.monotonicSeconds >= lastPublishedMonotonicSeconds else {
+            logger.debug("Dropping out-of-order snapshot tick")
+            return
+        }
+        lastPublishedMonotonicSeconds = tick.monotonicSeconds
+        continuation?.yield(combinedSnapshot(at: tick))
+
+        if !hasPublishedFirstSnapshot {
+            hasPublishedFirstSnapshot = true
+            if let launchSignpostState {
+                signposter.endInterval("Launch", launchSignpostState)
+                self.launchSignpostState = nil
+            }
+            logger.info("MetricsEngine published first snapshot")
+        }
+    }
+}
