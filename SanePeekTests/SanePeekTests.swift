@@ -397,6 +397,218 @@ struct SanePeekTests {
         #expect(formatter.temperature(invalid) == "The metric data is unavailable.")
         #expect(formatter.duration(.nan) == "Unavailable")
     }
+
+    @Test("CPU reader maps counter samples and optional processor topology")
+    func cpuReaderMapsCounterSamplesAndOptionalProcessorTopology() async {
+        let first = CPUSystemSample(
+            counter: CPUCounterSample(
+                timestamp: .zero,
+                userTicks: 10,
+                systemTicks: 10,
+                idleTicks: 80
+            ),
+            hardware: CPUHardwareInfo(
+                logicalCoreCount: 10,
+                performanceCoreCount: 6,
+                efficiencyCoreCount: 4
+            )
+        )
+        let second = CPUSystemSample(
+            counter: CPUCounterSample(
+                timestamp: .zero.advanced(by: 1),
+                userTicks: 20,
+                systemTicks: 20,
+                idleTicks: 160
+            ),
+            hardware: first.hardware
+        )
+        let adapter = FixtureCPUSystemAdapter(samples: [first, second])
+        let reader = LiveCPUReader(adapter: adapter)
+
+        let firstResult = await reader.read(at: .zero)
+        let secondResult = await reader.read(at: .zero.advanced(by: 1))
+
+        #expect(firstResult.value?.utilization == nil)
+        #expect(secondResult.value?.utilization == 0.2)
+        #expect(secondResult.value?.logicalCoreCount == 10)
+        #expect(secondResult.value?.performanceCoreCount == 6)
+        #expect(secondResult.value?.efficiencyCoreCount == 4)
+    }
+
+    @Test("Memory reader maps page samples and preserves the latest pressure")
+    func memoryReaderMapsPageSamplesAndPreservesLatestPressure() async {
+        let adapter = FixtureMemorySystemAdapter(
+            result: .available(
+                MemorySystemSample(
+                    pageCounts: MemoryPageCounts(usedPages: 3, availablePages: 2),
+                    pageSize: 4_096
+                )
+            )
+        )
+        let pressureSource = FixtureMemoryPressureSource(initialPressure: .warning)
+        let reader = LiveMemoryReader(adapter: adapter, pressureSource: pressureSource)
+
+        let firstResult = await reader.read(at: .zero)
+        pressureSource.update(.critical)
+        let secondResult = await reader.read(at: .zero.advanced(by: 1))
+
+        #expect(firstResult.value?.usedBytes == 12_288)
+        #expect(firstResult.value?.availableBytes == 8_192)
+        #expect(firstResult.value?.pressure == .warning)
+        #expect(secondResult.value?.pressure == .critical)
+    }
+
+    @Test("Storage reader maps volume capacity and rejects malformed values")
+    func storageReaderMapsVolumeCapacityAndRejectsMalformedValues() async {
+        let reader = LiveStorageReader(
+            adapter: FixtureStorageSystemAdapter(
+                result: .available(
+                    StorageSystemSample(totalBytes: 100, availableBytes: 40)
+                )
+            )
+        )
+        let result = await reader.read(at: .zero)
+
+        #expect(result.value?.totalBytes == 100)
+        #expect(result.value?.availableBytes == 40)
+        #expect(result.value?.usedBytes == 60)
+
+        let malformedReader = LiveStorageReader(
+            adapter: FixtureStorageSystemAdapter(
+                result: .available(
+                    StorageSystemSample(totalBytes: 100, availableBytes: 101)
+                )
+            )
+        )
+        let malformedResult = await malformedReader.read(at: .zero)
+
+        #expect(malformedResult.availability == .failed(MetricFailure(kind: .invalidData)))
+    }
+
+    @Test("Network reader filters interfaces and maps monotonic throughput")
+    func networkReaderFiltersInterfacesAndMapsMonotonicThroughput() async {
+        let first = NetworkSystemSample(
+            counter: NetworkCounterSample(
+                timestamp: .zero,
+                interfaces: [
+                    NetworkInterfaceCounter(name: "en0", downloadBytes: 100, uploadBytes: 50),
+                    NetworkInterfaceCounter(
+                        name: "lo0",
+                        downloadBytes: 10_000,
+                        uploadBytes: 10_000,
+                        isLoopback: true
+                    )
+                ]
+            ),
+            connectivity: .connected
+        )
+        let second = NetworkSystemSample(
+            counter: NetworkCounterSample(
+                timestamp: .zero.advanced(by: 2),
+                interfaces: [
+                    NetworkInterfaceCounter(name: "en0", downloadBytes: 300, uploadBytes: 90),
+                    NetworkInterfaceCounter(
+                        name: "lo0",
+                        downloadBytes: 110_000,
+                        uploadBytes: 110_000,
+                        isLoopback: true
+                    )
+                ]
+            ),
+            connectivity: .connected
+        )
+        let reader = LiveNetworkReader(
+            adapter: FixtureNetworkSystemAdapter(samples: [first, second])
+        )
+
+        let firstResult = await reader.read(at: .zero)
+        let secondResult = await reader.read(at: .zero.advanced(by: 2))
+
+        #expect(firstResult.value?.downloadBytesPerSecond == nil)
+        #expect(secondResult.value?.downloadBytesPerSecond == 100)
+        #expect(secondResult.value?.uploadBytesPerSecond == 20)
+        #expect(secondResult.value?.connectivity == .connected)
+        #expect(secondResult.value?.interfaceNames == ["en0"])
+    }
+
+    @Test("Battery reader maps optional power values and desktop absence")
+    func batteryReaderMapsPowerSourceValues() async {
+        let reader = LiveBatteryReader(
+            adapter: FixtureBatterySystemAdapter(
+                result: .available(
+                    BatterySystemSample(
+                        isPresent: true,
+                        currentCapacity: 80,
+                        maximumCapacity: 100,
+                        isCharging: true,
+                        timeToEmptyMinutes: nil,
+                        timeToFullChargeMinutes: 30,
+                        designCapacity: 110
+                    )
+                )
+            )
+        )
+
+        let result = await reader.read(at: .zero)
+
+        #expect(result.value?.percentage == 0.8)
+        #expect(result.value?.chargingState == .charging)
+        #expect(result.value?.timeRemaining == 1_800)
+        #expect(abs((result.value?.healthPercentage ?? 0) - (100.0 / 110.0)) < 0.001)
+
+        let desktopReader = LiveBatteryReader(
+            adapter: FixtureBatterySystemAdapter(
+                result: .available(
+                    BatterySystemSample(
+                        isPresent: false,
+                        currentCapacity: nil,
+                        maximumCapacity: nil,
+                        isCharging: nil,
+                        timeToEmptyMinutes: nil,
+                        timeToFullChargeMinutes: nil,
+                        designCapacity: nil
+                    )
+                )
+            )
+        )
+
+        let desktopResult = await desktopReader.read(at: .zero)
+        #expect(desktopResult.availability == .unavailable(.notPresent))
+    }
+
+    @Test("GPU reader requires capability before mapping utilization")
+    func gpuReaderRespectsCapabilityBoundary() async {
+        let supportedReader = LiveGPUReader(
+            adapter: FixtureGPUSystemAdapter(
+                capability: GPUCapability(isSupported: true, name: "Fixture GPU"),
+                result: .available(GPUSystemSample(utilization: 0.5))
+            )
+        )
+
+        let supportedResult = await supportedReader.read(at: .zero)
+        #expect(supportedResult.value?.utilization == 0.5)
+        #expect(supportedResult.value?.name == "Fixture GPU")
+
+        let unsupportedReader = LiveGPUReader(
+            adapter: FixtureGPUSystemAdapter(
+                capability: GPUCapability(isSupported: false, name: "Unknown GPU"),
+                result: .available(GPUSystemSample(utilization: 0.9))
+            )
+        )
+
+        let unsupportedResult = await unsupportedReader.read(at: .zero)
+        #expect(unsupportedResult.availability == .unavailable(.unsupported))
+
+        let invalidReader = LiveGPUReader(
+            adapter: FixtureGPUSystemAdapter(
+                capability: GPUCapability(isSupported: true),
+                result: .available(GPUSystemSample(utilization: 1.5))
+            )
+        )
+
+        let invalidResult = await invalidReader.read(at: .zero)
+        #expect(invalidResult.availability == .failed(MetricFailure(kind: .invalidData)))
+    }
 }
 
 private struct FixtureCPUReader: CPUReader {
@@ -409,4 +621,92 @@ private struct FixtureCPUReader: CPUReader {
 
 private struct ImmediateMetricScheduler: MetricScheduler {
     func wait(for interval: TimeInterval) async throws {}
+}
+
+private struct FixtureCPUSystemAdapter: CPUSystemAdapter {
+    let samples: [CPUSystemSample]
+
+    func read(at timestamp: MetricTimestamp) -> MetricResult<CPUSystemSample> {
+        let index = timestamp.monotonicSeconds > 0 ? 1 : 0
+        guard let sample = samples[safe: index] else {
+            return .unavailable(.noData)
+        }
+        return .available(sample)
+    }
+}
+
+private struct FixtureMemorySystemAdapter: MemorySystemAdapter {
+    let result: MetricResult<MemorySystemSample>
+
+    func read(at timestamp: MetricTimestamp) -> MetricResult<MemorySystemSample> {
+        result
+    }
+}
+
+private struct FixtureStorageSystemAdapter: StorageSystemAdapter {
+    let result: MetricResult<StorageSystemSample>
+
+    func read(at timestamp: MetricTimestamp) -> MetricResult<StorageSystemSample> {
+        result
+    }
+}
+
+private struct FixtureNetworkSystemAdapter: NetworkSystemAdapter {
+    let samples: [NetworkSystemSample]
+
+    func read(at timestamp: MetricTimestamp) -> MetricResult<NetworkSystemSample> {
+        let index = timestamp.monotonicSeconds > 0 ? 1 : 0
+        guard let sample = samples[safe: index] else {
+            return .unavailable(.noData)
+        }
+        return .available(sample)
+    }
+}
+
+private struct FixtureBatterySystemAdapter: BatterySystemAdapter {
+    let result: MetricResult<BatterySystemSample>
+
+    func read(at timestamp: MetricTimestamp) -> MetricResult<BatterySystemSample> {
+        result
+    }
+}
+
+private struct FixtureGPUSystemAdapter: GPUSystemAdapter {
+    let capability: GPUCapability
+    let result: MetricResult<GPUSystemSample>
+
+    func read(at timestamp: MetricTimestamp) -> MetricResult<GPUSystemSample> {
+        result
+    }
+}
+
+private final class FixtureMemoryPressureSource: MemoryPressureSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: MemoryPressure?
+
+    init(initialPressure: MemoryPressure?) {
+        value = initialPressure
+    }
+
+    var currentPressure: MemoryPressure? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func start() {}
+
+    func cancel() {}
+
+    func update(_ pressure: MemoryPressure) {
+        lock.lock()
+        value = pressure
+        lock.unlock()
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
 }
