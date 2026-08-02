@@ -3,6 +3,7 @@
 //  SanePeekUITests
 //
 
+import AppKit
 import XCTest
 
 @MainActor
@@ -158,9 +159,118 @@ final class SanePeekUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? Int, 0, "Expected the toggle to reflect a successful unregistration")
     }
 
+    /// The Settings picker only proves the model-level appearance mapping
+    /// (already unit-tested in `SettingsStoreTests`); this test proves the
+    /// setting actually reaches the rendered window via `.preferredColorScheme`
+    /// in `SanePeekApp`, by sampling average screenshot brightness of the
+    /// dashboard content rather than trusting the picker's own reported value.
+    /// (The segmented control's own accessibility `value` isn't a string on
+    /// macOS — reading it returns the AX subelement, not a display name —
+    /// but each individual segment's `value` is a 0/1 checked indicator, so
+    /// selection is read from the specific segment instead.)
+    func testAppearanceSettingChangesRenderedInterfaceAndPersists() throws {
+        let suiteName = "com.sanepeek.uitests.settings.\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestFixture", "dashboard", "-uiTestSettingsSuite", suiteName]
+        app.launch()
+
+        let dashboardRoot = app.descendants(matching: .any)["dashboard.root"]
+        XCTAssertTrue(dashboardRoot.waitForExistence(timeout: 5))
+
+        app.descendants(matching: .any)["dashboard.settings"].click()
+        let appearancePicker = app.descendants(matching: .any)["settings.appearance"]
+        XCTAssertTrue(appearancePicker.waitForExistence(timeout: 5))
+
+        func selectAppearance(_ displayName: String) {
+            let option = app.descendants(matching: .any)[displayName]
+            XCTAssertTrue(option.waitForExistence(timeout: 5), "Expected a \(displayName) appearance option")
+            option.click()
+        }
+
+        selectAppearance("Light")
+        let lightBrightness = Self.averageBrightness(of: dashboardRoot.screenshot().image)
+
+        selectAppearance("Dark")
+        let darkBrightness = Self.averageBrightness(of: dashboardRoot.screenshot().image)
+
+        XCTAssertGreaterThan(
+            lightBrightness - darkBrightness, 0.2,
+            "Expected Light appearance to render a materially brighter dashboard than Dark"
+        )
+
+        selectAppearance("System")
+        XCTAssertTrue(dashboardRoot.exists, "Expected the dashboard to keep rendering after switching to System appearance")
+
+        selectAppearance("Dark")
+        app.terminate()
+        app.launchArguments = ["-uiTestFixture", "dashboard", "-uiTestSettingsSuite", suiteName]
+        app.launch()
+
+        app.descendants(matching: .any)["dashboard.settings"].click()
+        let reopenedPicker = app.descendants(matching: .any)["settings.appearance"]
+        XCTAssertTrue(reopenedPicker.waitForExistence(timeout: 5))
+        let reopenedDarkOption = app.descendants(matching: .any)["Dark"]
+        XCTAssertTrue(reopenedDarkOption.waitForExistence(timeout: 5))
+        waitForValue(0, of: reopenedDarkOption, toBecome: 1)
+        XCTAssertEqual(reopenedDarkOption.value as? Int, 1, "Expected Dark to remain selected after relaunch")
+    }
+
+    /// Smoke-tests two accessibility concerns that no other test covers:
+    /// that VoiceOver has something meaningful to announce for a metric card,
+    /// and that Settings can be reached and its controls read without ever
+    /// touching the mouse. Doesn't test Tab/arrow-key control navigation:
+    /// that only works when the user has "Full Keyboard Access" enabled in
+    /// System Settings (`com.apple.universalaccess AppleKeyboardUIMode`,
+    /// off by default — confirmed off in this environment) — the same
+    /// system-wide precondition Apple's own System Settings app depends on.
+    /// Depending on it here would mean either a flaky test or an automated
+    /// test mutating the user's global accessibility preference as a side
+    /// effect, neither of which is appropriate.
+    func testKeyboardOpensSettingsWithoutTheMouseAndCardsExposeAccessibilityLabels() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestFixture", "dashboard", "-uiTestSettingsSuite", "com.sanepeek.uitests.settings.\(UUID().uuidString)"]
+        app.launch()
+
+        let cpuCard = app.descendants(matching: .any)["dashboard.card.cpu"]
+        XCTAssertTrue(cpuCard.waitForExistence(timeout: 5))
+        XCTAssertFalse(cpuCard.label.isEmpty, "Expected the CPU card to expose a non-empty accessibility label for VoiceOver")
+
+        app.typeKey(",", modifierFlags: .command)
+        let picker = app.descendants(matching: .any)["settings.appearance"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5), "Expected Cmd+, to open Settings without using the mouse")
+    }
+
     private func waitForValue(_ from: Int, of element: XCUIElement, toBecome to: Int, timeout: TimeInterval = 5) {
         let predicate = NSPredicate(format: "value == %@", NSNumber(value: to))
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
         _ = XCTWaiter().wait(for: [expectation], timeout: timeout)
+    }
+
+    /// Coarse grid-sampled average grayscale brightness (0 = black, 1 = white)
+    /// of a screenshot, used only to detect a gross light-vs-dark difference —
+    /// not a precise color assertion.
+    private static func averageBrightness(of image: NSImage) -> Double {
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData) else { return 0 }
+
+        let width = bitmap.pixelsWide
+        let height = bitmap.pixelsHigh
+        guard width > 0, height > 0 else { return 0 }
+
+        let strideX = max(width / 40, 1)
+        let strideY = max(height / 40, 1)
+        var total: Double = 0
+        var count = 0
+
+        for x in stride(from: 0, to: width, by: strideX) {
+            for y in stride(from: 0, to: height, by: strideY) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                total += (Double(color.redComponent) + Double(color.greenComponent) + Double(color.blueComponent)) / 3
+                count += 1
+            }
+        }
+        return count > 0 ? total / Double(count) : 0
     }
 }
