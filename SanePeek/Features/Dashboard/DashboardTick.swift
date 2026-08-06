@@ -13,4 +13,5 @@ nonisolated struct DashboardTick: Sendable, Equatable {
     let memoryCompressedHistory: [Double]
     let networkDownloadHistory: [Double]
     let gpuHistory: [Double]
+    let temperatureHistory: [Double]
 }

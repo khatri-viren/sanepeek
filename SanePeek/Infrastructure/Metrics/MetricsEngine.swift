@@ -12,6 +12,7 @@ nonisolated enum MetricHistoryKind: CaseIterable, Hashable, Sendable {
     case networkDownloadBytesPerSecond
     case networkUploadBytesPerSecond
     case gpuUtilization
+    case temperatureHottestCelsius
 }
 
 actor MetricsEngine {
@@ -21,6 +22,7 @@ actor MetricsEngine {
     private let networkReader: any NetworkReader
     private let batteryReader: any BatteryReader
     private let gpuReader: any GPUReader
+    private let temperatureReader: any TemperatureReader
     private let clock: any MetricClock
     private let fastScheduler: any MetricScheduler
     private let slowScheduler: any MetricScheduler
@@ -41,6 +43,7 @@ actor MetricsEngine {
     private var lastGoodNetwork: NetworkSnapshot?
     private var lastGoodBattery: BatterySnapshot?
     private var lastGoodGPU: GPUSnapshot?
+    private var lastGoodTemperature: TemperatureSnapshot?
 
     private var publishedCPU: CPUSnapshot?
     private var publishedMemory: MemorySnapshot?
@@ -48,6 +51,7 @@ actor MetricsEngine {
     private var publishedNetwork: NetworkSnapshot?
     private var publishedBattery: BatterySnapshot?
     private var publishedGPU: GPUSnapshot?
+    private var publishedTemperature: TemperatureSnapshot?
 
     private var lastPublishedMonotonicSeconds: TimeInterval = -Double.infinity
     private var hasPublishedFirstSnapshot = false
@@ -63,6 +67,7 @@ actor MetricsEngine {
         networkReader: any NetworkReader = LiveNetworkReader(),
         batteryReader: any BatteryReader = LiveBatteryReader(),
         gpuReader: any GPUReader = LiveGPUReader(),
+        temperatureReader: any TemperatureReader = LiveTemperatureReader(),
         clock: any MetricClock = SystemMetricClock(),
         fastScheduler: any MetricScheduler = SystemMetricScheduler(),
         slowScheduler: any MetricScheduler = SystemMetricScheduler(),
@@ -78,6 +83,7 @@ actor MetricsEngine {
         self.networkReader = networkReader
         self.batteryReader = batteryReader
         self.gpuReader = gpuReader
+        self.temperatureReader = temperatureReader
         self.clock = clock
         self.fastScheduler = fastScheduler
         self.slowScheduler = slowScheduler
@@ -207,10 +213,12 @@ actor MetricsEngine {
 
             async let storageResult = readStorage(at: tick)
             async let batteryResult = readBattery(at: tick)
+            async let temperatureResult = readTemperature(at: tick)
 
             updateSlowMetrics(
                 storage: await storageResult,
                 battery: await batteryResult,
+                temperature: await temperatureResult,
                 at: tick
             )
             publish(at: tick)
@@ -260,6 +268,12 @@ actor MetricsEngine {
         let state = signposter.beginInterval("ReaderCost.gpu")
         defer { signposter.endInterval("ReaderCost.gpu", state) }
         return await gpuReader.read(at: tick)
+    }
+
+    private func readTemperature(at tick: MetricTimestamp) async -> MetricResult<TemperatureSnapshot> {
+        let state = signposter.beginInterval("ReaderCost.temperature")
+        defer { signposter.endInterval("ReaderCost.temperature", state) }
+        return await temperatureReader.read(at: tick)
     }
 
     // MARK: - Merge and history
@@ -313,10 +327,19 @@ actor MetricsEngine {
     private func updateSlowMetrics(
         storage storageResult: MetricResult<StorageSnapshot>,
         battery batteryResult: MetricResult<BatterySnapshot>,
+        temperature temperatureResult: MetricResult<TemperatureSnapshot>,
         at tick: MetricTimestamp
     ) {
         publishedStorage = mergedStorage(storageResult, at: tick)
         publishedBattery = mergedBattery(batteryResult, at: tick)
+        publishedTemperature = mergedTemperature(temperatureResult, at: tick)
+
+        if case .available = temperatureResult {
+            let hottest = [publishedTemperature?.cpuCelsius, publishedTemperature?.gpuCelsius].compactMap { $0 }.max()
+            if let hottest {
+                history[.temperatureHottestCelsius]?.append(MetricSample(timestamp: tick, value: hottest))
+            }
+        }
     }
 
     private func mergedCPU(_ result: MetricResult<CPUSnapshot>, at tick: MetricTimestamp) -> CPUSnapshot {
@@ -417,6 +440,20 @@ actor MetricsEngine {
         )
     }
 
+    private func mergedTemperature(_ result: MetricResult<TemperatureSnapshot>, at tick: MetricTimestamp) -> TemperatureSnapshot {
+        if case let .available(snapshot) = result {
+            lastGoodTemperature = snapshot
+            return snapshot
+        }
+        let previous = lastGoodTemperature
+        return TemperatureSnapshot(
+            timestamp: tick,
+            availability: result.availability,
+            cpuCelsius: previous?.cpuCelsius,
+            gpuCelsius: previous?.gpuCelsius
+        )
+    }
+
     private func combinedSnapshot(at timestamp: MetricTimestamp) -> MetricsSnapshot {
         MetricsSnapshot(
             timestamp: timestamp,
@@ -425,7 +462,8 @@ actor MetricsEngine {
             storage: publishedStorage,
             network: publishedNetwork,
             battery: publishedBattery,
-            gpu: publishedGPU
+            gpu: publishedGPU,
+            temperature: publishedTemperature
         )
     }
 

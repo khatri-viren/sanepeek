@@ -38,6 +38,10 @@ nonisolated enum MetricPalette {
     static let network = Color.cyan
     static let battery = Color.green
     static let gpu = Color.teal
+    /// Temperature has no assigned color in the PRD either; pink is the only
+    /// remaining unclaimed system hue distinct from every other metric and from
+    /// the orange/red reserved for warning/critical.
+    static let temperature = Color.pink
     static let warning = Color.orange
     static let critical = Color.red
 

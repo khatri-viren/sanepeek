@@ -229,6 +229,47 @@ struct MetricsEngineTests {
         await engine.stop()
     }
 
+    @Test("Temperature reads merge into the snapshot on the slow loop and record the hottest of CPU/GPU in history")
+    func temperatureMergesAndRecordsHottestInHistory() async {
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let temperatureReader = QueueingReader<TemperatureSnapshot>(
+            results: [
+                .available(TemperatureSnapshot(timestamp: .zero, cpuCelsius: 52, gpuCelsius: 46)),
+                .unavailable(.unsupported)
+            ]
+        )
+        let engine = MetricsEngine(
+            cpuReader: QueueingReader(results: [.available(CPUSnapshot(timestamp: .zero, utilization: 0.1))]),
+            memoryReader: QueueingReader(results: [.available(MemorySnapshot(timestamp: .zero, usedBytes: 1))]),
+            storageReader: QueueingReader(results: [.available(StorageSnapshot(timestamp: .zero, usedBytes: 1))]),
+            networkReader: QueueingReader(results: [.available(NetworkSnapshot(timestamp: .zero, downloadBytesPerSecond: 1))]),
+            batteryReader: QueueingReader(results: [.available(BatterySnapshot(timestamp: .zero, percentage: 1))]),
+            gpuReader: QueueingReader(results: [.available(GPUSnapshot(timestamp: .zero, utilization: 0.1))]),
+            temperatureReader: temperatureReader,
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.start()
+        await slowScheduler.waitUntilIntervalsCount(1)
+        let first = await engine.currentSnapshot()
+        #expect(first.temperature?.availability == .available)
+        #expect(first.temperature?.cpuCelsius == 52)
+        #expect(first.temperature?.gpuCelsius == 46)
+        #expect(await engine.history(for: .temperatureHottestCelsius).map(\.value) == [52])
+
+        await slowScheduler.advance()
+        await slowScheduler.waitUntilIntervalsCount(2)
+        let second = await engine.currentSnapshot()
+        #expect(second.temperature?.availability == .unavailable(.unsupported))
+        #expect(second.temperature?.cpuCelsius == 52)
+        #expect(second.temperature?.gpuCelsius == 46)
+        #expect(await engine.history(for: .temperatureHottestCelsius).map(\.value) == [52])
+
+        await engine.stop()
+    }
+
     @Test("Snapshots publish in order and history stays bounded")
     func snapshotsPublishInOrderWithBoundedHistory() async {
         let clock = SteppingClock()
@@ -351,6 +392,7 @@ extension QueueingReader: StorageReader where Snapshot == StorageSnapshot {}
 extension QueueingReader: NetworkReader where Snapshot == NetworkSnapshot {}
 extension QueueingReader: BatteryReader where Snapshot == BatterySnapshot {}
 extension QueueingReader: GPUReader where Snapshot == GPUSnapshot {}
+extension QueueingReader: TemperatureReader where Snapshot == TemperatureSnapshot {}
 
 private actor SteppingClock: MetricClock {
     private nonisolated(unsafe) var current = MetricTimestamp.zero

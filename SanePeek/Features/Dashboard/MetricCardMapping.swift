@@ -18,6 +18,8 @@ nonisolated enum MetricCardMapping {
     private static let storageCriticalFraction = 0.95
     private static let batteryWarningFraction = 0.20
     private static let batteryCriticalFraction = 0.10
+    private static let temperatureWarningCelsius = 80.0
+    private static let temperatureCriticalCelsius = 95.0
 
     static func cpuCard(
         _ snapshot: CPUSnapshot?,
@@ -299,6 +301,61 @@ nonisolated enum MetricCardMapping {
             usageFraction: nil,
             accessibilityLabel: title,
             accessibilityValue: accessibilityValue(primary: primary, secondary: snapshot.name, status: nil)
+        )
+    }
+
+    static func temperatureCard(
+        _ snapshot: TemperatureSnapshot?,
+        history: [Double],
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> MetricCardModel {
+        let title = "Temperature"
+        guard let snapshot, snapshot.availability.isAvailable else {
+            return unavailableCard(id: .temperature, title: title, systemImage: "thermometer.medium", color: MetricPalette.temperature, availability: snapshot?.availability)
+        }
+
+        let hottest = [snapshot.cpuCelsius, snapshot.gpuCelsius].compactMap { $0 }.max()
+        let status: MetricCardStatus? = hottest.map { value in
+            if value >= temperatureCriticalCelsius { return .critical }
+            if value >= temperatureWarningCelsius { return .warning }
+            return .normal
+        }
+
+        let primary = formatter.temperature(hottest)
+        let secondary = [
+            snapshot.cpuCelsius.map { "CPU \(formatter.temperature($0))" },
+            snapshot.gpuCelsius.map { "GPU \(formatter.temperature($0))" }
+        ].compactMap { $0 }.joined(separator: " \u{00B7} ")
+
+        return MetricCardModel(
+            id: .temperature,
+            title: title,
+            systemImage: "thermometer.medium",
+            accentColor: MetricPalette.temperature,
+            primaryValue: primary,
+            secondaryValue: secondary.isEmpty ? nil : secondary,
+            status: status,
+            unavailableMessage: nil,
+            sparklineValues: history,
+            usageFraction: nil,
+            accessibilityLabel: title,
+            accessibilityValue: accessibilityValue(primary: primary, secondary: secondary.isEmpty ? nil : secondary, status: status)
+        )
+    }
+
+    /// Nil when the snapshot is unavailable — `TemperatureCardView` falls back to
+    /// placeholder text and an empty chart in that case, matching `cpuDetail`/`memoryDetail`.
+    static func temperatureDetail(
+        _ snapshot: TemperatureSnapshot?,
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> TemperatureCardDetail? {
+        guard let snapshot, snapshot.availability.isAvailable else { return nil }
+        let hottest = [snapshot.cpuCelsius, snapshot.gpuCelsius].compactMap { $0 }.max()
+        return TemperatureCardDetail(
+            hottestCelsius: hottest,
+            hottestText: formatter.temperature(hottest),
+            cpuText: snapshot.cpuCelsius.map { formatter.temperature($0) },
+            gpuText: snapshot.gpuCelsius.map { formatter.temperature($0) }
         )
     }
 

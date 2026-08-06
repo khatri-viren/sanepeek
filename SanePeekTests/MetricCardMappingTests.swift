@@ -221,4 +221,58 @@ struct MetricCardMappingTests {
         #expect(card?.primaryValue == "30%")
         #expect(card?.secondaryValue == "Some GPU")
     }
+
+    @Test("Temperature card falls back to the unavailable presentation for a nil or unsupported snapshot")
+    func temperatureCardHandlesUnavailability() {
+        let nilCard = MetricCardMapping.temperatureCard(nil, history: [])
+        let unsupportedCard = MetricCardMapping.temperatureCard(
+            .unavailable(at: Self.timestamp, reason: .unsupported),
+            history: []
+        )
+
+        for card in [nilCard, unsupportedCard] {
+            #expect(card.primaryValue == "--")
+            #expect(card.status == nil)
+            #expect(card.sparklineValues.isEmpty)
+        }
+
+        #expect(unsupportedCard.unavailableMessage == "This metric is not supported on this Mac.")
+        #expect(MetricCardMapping.temperatureDetail(nil) == nil)
+        #expect(MetricCardMapping.temperatureDetail(.unavailable(at: Self.timestamp, reason: .unsupported)) == nil)
+    }
+
+    @Test("Temperature card reports the hottest of CPU/GPU and escalates at the documented thresholds")
+    func temperatureCardStatusThresholds() {
+        let normal = MetricCardMapping.temperatureCard(
+            TemperatureSnapshot(timestamp: Self.timestamp, cpuCelsius: 52, gpuCelsius: 46),
+            history: [52]
+        )
+        let warning = MetricCardMapping.temperatureCard(
+            TemperatureSnapshot(timestamp: Self.timestamp, cpuCelsius: 82, gpuCelsius: 74),
+            history: []
+        )
+        let critical = MetricCardMapping.temperatureCard(
+            TemperatureSnapshot(timestamp: Self.timestamp, cpuCelsius: 97, gpuCelsius: 90),
+            history: []
+        )
+
+        #expect(normal.status == .normal)
+        #expect(normal.primaryValue == "52 \u{00B0}C")
+        #expect(normal.secondaryValue == "CPU 52 \u{00B0}C \u{00B7} GPU 46 \u{00B0}C")
+        #expect(normal.sparklineValues == [52])
+        #expect(warning.status == .warning)
+        #expect(critical.status == .critical)
+    }
+
+    @Test("Temperature detail formats the hottest value and both components when available")
+    func temperatureDetailMapsAvailableSnapshot() {
+        let detail = MetricCardMapping.temperatureDetail(
+            TemperatureSnapshot(timestamp: Self.timestamp, cpuCelsius: 82, gpuCelsius: 74)
+        )
+
+        #expect(detail?.hottestCelsius == 82)
+        #expect(detail?.hottestText == "82 \u{00B0}C")
+        #expect(detail?.cpuText == "82 \u{00B0}C")
+        #expect(detail?.gpuText == "74 \u{00B0}C")
+    }
 }

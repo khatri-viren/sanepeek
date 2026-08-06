@@ -34,6 +34,7 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                 var memoryCompressedHistory: [Double] = []
                 var networkDownloadHistory: [Double] = []
                 var gpuHistory: [Double] = []
+                var temperatureHistory: [Double] = []
 
                 while !Task.isCancelled {
                     let snapshot = Self.varying(self.baseline, tickIndex: tickIndex)
@@ -65,6 +66,10 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                     if let utilization = snapshot.gpu?.utilization {
                         gpuHistory = Self.appending(gpuHistory, utilization)
                     }
+                    let hottestCelsius = [snapshot.temperature?.cpuCelsius, snapshot.temperature?.gpuCelsius].compactMap { $0 }.max()
+                    if let hottestCelsius {
+                        temperatureHistory = Self.appending(temperatureHistory, hottestCelsius)
+                    }
 
                     continuation.yield(
                         DashboardTick(
@@ -77,7 +82,8 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                             memoryWiredHistory: memoryWiredHistory,
                             memoryCompressedHistory: memoryCompressedHistory,
                             networkDownloadHistory: networkDownloadHistory,
-                            gpuHistory: gpuHistory
+                            gpuHistory: gpuHistory,
+                            temperatureHistory: temperatureHistory
                         )
                     )
 
@@ -177,6 +183,15 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
             )
         }
 
+        let temperature = baseline.temperature.map { snapshot in
+            TemperatureSnapshot(
+                timestamp: timestamp,
+                availability: snapshot.availability,
+                cpuCelsius: snapshot.cpuCelsius.map { max(20, min(105, $0 + wave * 5)) },
+                gpuCelsius: snapshot.gpuCelsius.map { max(20, min(105, $0 + wave * 5)) }
+            )
+        }
+
         let storage = baseline.storage.map { snapshot in
             StorageSnapshot(
                 timestamp: timestamp,
@@ -206,6 +221,7 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
             network: network,
             battery: battery,
             gpu: gpu,
+            temperature: temperature,
             hardware: baseline.hardware
         )
     }

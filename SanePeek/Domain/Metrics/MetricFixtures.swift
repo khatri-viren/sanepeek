@@ -45,6 +45,11 @@ nonisolated enum MetricFixtures {
                 timestamp: timestamp,
                 utilization: 0.22,
                 name: "Preview GPU"
+            ),
+            temperature: TemperatureSnapshot(
+                timestamp: timestamp,
+                cpuCelsius: 52,
+                gpuCelsius: 46
             )
         )
     }
@@ -95,6 +100,11 @@ nonisolated enum MetricFixtures {
                 timestamp: timestamp,
                 utilization: 0.55,
                 name: "Preview GPU"
+            ),
+            temperature: TemperatureSnapshot(
+                timestamp: timestamp,
+                cpuCelsius: 82,
+                gpuCelsius: 74
             )
         )
     }
@@ -145,6 +155,11 @@ nonisolated enum MetricFixtures {
                 timestamp: timestamp,
                 utilization: 0.91,
                 name: "Preview GPU"
+            ),
+            temperature: TemperatureSnapshot(
+                timestamp: timestamp,
+                cpuCelsius: 97,
+                gpuCelsius: 90
             )
         )
     }
@@ -157,7 +172,8 @@ nonisolated enum MetricFixtures {
             storage: .unavailable(at: timestamp, reason: .noData),
             network: .unavailable(at: timestamp, reason: .temporarilyUnavailable),
             battery: .unavailable(at: timestamp, reason: .notApplicable),
-            gpu: .unavailable(at: timestamp, reason: .unsupported)
+            gpu: .unavailable(at: timestamp, reason: .unsupported),
+            temperature: .unavailable(at: timestamp, reason: .temporarilyUnavailable)
         )
     }
 
@@ -173,7 +189,8 @@ nonisolated enum MetricFixtures {
             storage: baseline.storage,
             network: baseline.network,
             battery: baseline.battery,
-            gpu: .unavailable(at: timestamp, reason: .unsupported)
+            gpu: .unavailable(at: timestamp, reason: .unsupported),
+            temperature: baseline.temperature
         )
     }
 
@@ -189,7 +206,26 @@ nonisolated enum MetricFixtures {
             storage: .unavailable(at: timestamp, reason: .noData),
             network: .unavailable(at: timestamp, reason: .temporarilyUnavailable),
             battery: baseline.battery,
-            gpu: baseline.gpu
+            gpu: baseline.gpu,
+            temperature: baseline.temperature
+        )
+    }
+
+    /// This is what the real live app always shows today: no compliant, sandbox-safe
+    /// data source exists for CPU/GPU temperature (see `LiveTemperatureReader`), so
+    /// this fixture verifies the "not supported on this Mac" card state renders
+    /// correctly rather than showing stale or misleading numbers.
+    static func temperatureUnsupported(at timestamp: MetricTimestamp = .zero) -> MetricsSnapshot {
+        let baseline = dashboard(at: timestamp)
+        return MetricsSnapshot(
+            timestamp: timestamp,
+            cpu: baseline.cpu,
+            memory: baseline.memory,
+            storage: baseline.storage,
+            network: baseline.network,
+            battery: baseline.battery,
+            gpu: baseline.gpu,
+            temperature: .unavailable(at: timestamp, reason: .unsupported)
         )
     }
 }

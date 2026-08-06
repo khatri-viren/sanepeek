@@ -21,7 +21,7 @@ nonisolated struct CadencePolicy: Equatable, Sendable {
         switch metric {
         case .cpu, .memory, .network, .gpu:
             refreshRate.interval
-        case .storage, .battery:
+        case .storage, .battery, .temperature:
             30
         }
     }

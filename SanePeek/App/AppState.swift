@@ -93,6 +93,8 @@ struct AppDependencies: Sendable {
             snapshot = MetricFixtures.gpuUnsupported()
         case "mixedFailure":
             snapshot = MetricFixtures.mixedFailure()
+        case "temperatureUnsupported":
+            snapshot = MetricFixtures.temperatureUnsupported()
         default:
             return Self.live.withSettingsDefaultsSuiteName(settingsSuiteName)
         }

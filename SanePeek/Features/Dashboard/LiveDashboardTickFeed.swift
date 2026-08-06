@@ -25,6 +25,7 @@ final class LiveDashboardTickFeed: DashboardTickFeed {
                     async let memoryCompressedHistory = engine.history(for: .memoryCompressedUtilization)
                     async let networkDownloadHistory = engine.history(for: .networkDownloadBytesPerSecond)
                     async let gpuHistory = engine.history(for: .gpuUtilization)
+                    async let temperatureHistory = engine.history(for: .temperatureHottestCelsius)
 
                     continuation.yield(
                         DashboardTick(
@@ -37,7 +38,8 @@ final class LiveDashboardTickFeed: DashboardTickFeed {
                             memoryWiredHistory: await memoryWiredHistory.map(\.value),
                             memoryCompressedHistory: await memoryCompressedHistory.map(\.value),
                             networkDownloadHistory: await networkDownloadHistory.map(\.value),
-                            gpuHistory: await gpuHistory.map(\.value)
+                            gpuHistory: await gpuHistory.map(\.value),
+                            temperatureHistory: await temperatureHistory.map(\.value)
                         )
                     )
                 }

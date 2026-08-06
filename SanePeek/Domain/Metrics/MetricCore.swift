@@ -33,6 +33,7 @@ nonisolated enum MetricKind: String, CaseIterable, Hashable, Sendable {
     case network
     case battery
     case gpu
+    case temperature
 }
 
 nonisolated protocol MetricSnapshot: Sendable, Equatable {
@@ -67,6 +68,7 @@ nonisolated struct MetricsSnapshot: Sendable, Equatable {
     let network: NetworkSnapshot?
     let battery: BatterySnapshot?
     let gpu: GPUSnapshot?
+    let temperature: TemperatureSnapshot?
     let hardware: HardwareSnapshot?
 
     init(
@@ -77,6 +79,7 @@ nonisolated struct MetricsSnapshot: Sendable, Equatable {
         network: NetworkSnapshot? = nil,
         battery: BatterySnapshot? = nil,
         gpu: GPUSnapshot? = nil,
+        temperature: TemperatureSnapshot? = nil,
         hardware: HardwareSnapshot? = nil
     ) {
         self.timestamp = timestamp
@@ -86,11 +89,12 @@ nonisolated struct MetricsSnapshot: Sendable, Equatable {
         self.network = network
         self.battery = battery
         self.gpu = gpu
+        self.temperature = temperature
         self.hardware = hardware
     }
 
     var containsAvailableMetric: Bool {
-        [cpu?.availability, memory?.availability, storage?.availability, network?.availability, battery?.availability, gpu?.availability]
+        [cpu?.availability, memory?.availability, storage?.availability, network?.availability, battery?.availability, gpu?.availability, temperature?.availability]
             .contains { $0?.isAvailable == true }
     }
 }

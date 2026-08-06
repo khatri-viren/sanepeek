@@ -10,6 +10,8 @@ final class DashboardViewModel {
     private(set) var cpuDetail: CPUCardDetail?
     private(set) var memoryCard = MetricCardMapping.memoryCard(nil, history: [])
     private(set) var memoryDetail: MemoryCardDetail?
+    private(set) var temperatureCard = MetricCardMapping.temperatureCard(nil, history: [])
+    private(set) var temperatureDetail: TemperatureCardDetail?
     private(set) var cards: [MetricCardModel] = []
     private(set) var hasReceivedData = false
 
@@ -58,6 +60,9 @@ final class DashboardViewModel {
             compressedHistory: tick.memoryCompressedHistory,
             formatter: formatter
         )
+
+        temperatureCard = MetricCardMapping.temperatureCard(snapshot.temperature, history: tick.temperatureHistory, formatter: formatter)
+        temperatureDetail = MetricCardMapping.temperatureDetail(snapshot.temperature, formatter: formatter)
 
         var next: [MetricCardModel] = [
             MetricCardMapping.storageCard(snapshot.storage, formatter: formatter),
