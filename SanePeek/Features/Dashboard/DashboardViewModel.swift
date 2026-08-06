@@ -6,7 +6,12 @@ import Observation
 @MainActor
 @Observable
 final class DashboardViewModel {
+    private(set) var cpuCard = MetricCardMapping.cpuCard(nil, history: [])
+    private(set) var cpuDetail: CPUCardDetail?
+    private(set) var memoryCard = MetricCardMapping.memoryCard(nil, history: [])
+    private(set) var memoryDetail: MemoryCardDetail?
     private(set) var cards: [MetricCardModel] = []
+    private(set) var hasReceivedData = false
 
     private let feed: any DashboardTickFeed
     private let formatterProvider: @MainActor () -> MetricFormatter
@@ -37,9 +42,24 @@ final class DashboardViewModel {
         let snapshot = tick.snapshot
         let formatter = formatterProvider()
 
+        cpuCard = MetricCardMapping.cpuCard(snapshot.cpu, history: tick.cpuHistory, formatter: formatter)
+        cpuDetail = MetricCardMapping.cpuDetail(
+            snapshot.cpu,
+            userHistory: tick.cpuUserHistory,
+            systemHistory: tick.cpuSystemHistory,
+            formatter: formatter
+        )
+
+        memoryCard = MetricCardMapping.memoryCard(snapshot.memory, history: tick.memoryHistory, formatter: formatter)
+        memoryDetail = MetricCardMapping.memoryDetail(
+            snapshot.memory,
+            appHistory: tick.memoryAppHistory,
+            wiredHistory: tick.memoryWiredHistory,
+            compressedHistory: tick.memoryCompressedHistory,
+            formatter: formatter
+        )
+
         var next: [MetricCardModel] = [
-            MetricCardMapping.cpuCard(snapshot.cpu, history: tick.cpuHistory, formatter: formatter),
-            MetricCardMapping.memoryCard(snapshot.memory, history: tick.memoryHistory, formatter: formatter),
             MetricCardMapping.storageCard(snapshot.storage, formatter: formatter),
             MetricCardMapping.networkCard(snapshot.network, history: tick.networkDownloadHistory, formatter: formatter),
             MetricCardMapping.batteryCard(snapshot.battery, formatter: formatter)
@@ -50,5 +70,6 @@ final class DashboardViewModel {
         }
 
         cards = next
+        hasReceivedData = true
     }
 }

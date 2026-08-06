@@ -74,6 +74,61 @@ struct MetricCardMappingTests {
         #expect(critical.status == .critical)
     }
 
+    @Test("Memory card hero value is a percentage of used-vs-available memory")
+    func memoryCardPrimaryValueIsPercentage() {
+        let card = MetricCardMapping.memoryCard(
+            MemorySnapshot(timestamp: Self.timestamp, usedBytes: 1, availableBytes: 1, pressure: .normal),
+            history: []
+        )
+
+        #expect(card.primaryValue == "50%")
+    }
+
+    @Test("Memory detail breaks used memory into App/Wired/Compressed/Free percentages")
+    func memoryDetailComputesBreakdownAndFreeRemainder() {
+        let detail = MetricCardMapping.memoryDetail(
+            MemorySnapshot(
+                timestamp: Self.timestamp,
+                usedBytes: 12_000,
+                availableBytes: 4_000,
+                pressure: .normal,
+                appUtilization: 0.5,
+                wiredUtilization: 0.2,
+                compressedUtilization: 0.1
+            ),
+            appHistory: [0.4, 0.5],
+            wiredHistory: [0.2, 0.2],
+            compressedHistory: [0.1, 0.1]
+        )
+
+        #expect(detail?.appPercentageText == "50%")
+        #expect(detail?.wiredPercentageText == "20%")
+        #expect(detail?.compressedPercentageText == "10%")
+        #expect(detail?.freePercentageText == "20%")
+        #expect(detail?.appHistory == [0.4, 0.5])
+    }
+
+    @Test("Memory detail is nil when the snapshot is missing, unavailable, or lacks a breakdown")
+    func memoryDetailHandlesMissingBreakdown() {
+        let nilSnapshot = MetricCardMapping.memoryDetail(nil, appHistory: [], wiredHistory: [], compressedHistory: [])
+        let unavailable = MetricCardMapping.memoryDetail(
+            .unavailable(at: Self.timestamp, reason: .temporarilyUnavailable),
+            appHistory: [],
+            wiredHistory: [],
+            compressedHistory: []
+        )
+        let missingBreakdown = MetricCardMapping.memoryDetail(
+            MemorySnapshot(timestamp: Self.timestamp, usedBytes: 1, availableBytes: 1, pressure: .normal),
+            appHistory: [],
+            wiredHistory: [],
+            compressedHistory: []
+        )
+
+        #expect(nilSnapshot == nil)
+        #expect(unavailable == nil)
+        #expect(missingBreakdown == nil)
+    }
+
     @Test("Storage card computes usage fraction and hides the sparkline in favor of the usage ring")
     func storageCardComputesUsageFraction() {
         let card = MetricCardMapping.storageCard(

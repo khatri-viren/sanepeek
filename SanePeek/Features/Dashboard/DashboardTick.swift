@@ -5,7 +5,12 @@
 nonisolated struct DashboardTick: Sendable, Equatable {
     let snapshot: MetricsSnapshot
     let cpuHistory: [Double]
+    let cpuUserHistory: [Double]
+    let cpuSystemHistory: [Double]
     let memoryHistory: [Double]
+    let memoryAppHistory: [Double]
+    let memoryWiredHistory: [Double]
+    let memoryCompressedHistory: [Double]
     let networkDownloadHistory: [Double]
     let gpuHistory: [Double]
 }

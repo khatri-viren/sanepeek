@@ -17,7 +17,12 @@ final class LiveDashboardTickFeed: DashboardTickFeed {
 
                 for await snapshot in await engine.snapshots() {
                     async let cpuHistory = engine.history(for: .cpuUtilization)
+                    async let cpuUserHistory = engine.history(for: .cpuUserUtilization)
+                    async let cpuSystemHistory = engine.history(for: .cpuSystemUtilization)
                     async let memoryHistory = engine.history(for: .memoryUsedBytes)
+                    async let memoryAppHistory = engine.history(for: .memoryAppUtilization)
+                    async let memoryWiredHistory = engine.history(for: .memoryWiredUtilization)
+                    async let memoryCompressedHistory = engine.history(for: .memoryCompressedUtilization)
                     async let networkDownloadHistory = engine.history(for: .networkDownloadBytesPerSecond)
                     async let gpuHistory = engine.history(for: .gpuUtilization)
 
@@ -25,7 +30,12 @@ final class LiveDashboardTickFeed: DashboardTickFeed {
                         DashboardTick(
                             snapshot: snapshot,
                             cpuHistory: await cpuHistory.map(\.value),
+                            cpuUserHistory: await cpuUserHistory.map(\.value),
+                            cpuSystemHistory: await cpuSystemHistory.map(\.value),
                             memoryHistory: await memoryHistory.map(\.value),
+                            memoryAppHistory: await memoryAppHistory.map(\.value),
+                            memoryWiredHistory: await memoryWiredHistory.map(\.value),
+                            memoryCompressedHistory: await memoryCompressedHistory.map(\.value),
                             networkDownloadHistory: await networkDownloadHistory.map(\.value),
                             gpuHistory: await gpuHistory.map(\.value)
                         )

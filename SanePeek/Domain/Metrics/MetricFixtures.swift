@@ -5,15 +5,21 @@ nonisolated enum MetricFixtures {
             cpu: CPUSnapshot(
                 timestamp: timestamp,
                 utilization: 0.38,
+                userUtilization: 0.28,
+                systemUtilization: 0.10,
                 logicalCoreCount: 10,
                 performanceCoreCount: 6,
-                efficiencyCoreCount: 4
+                efficiencyCoreCount: 4,
+                chipName: "Preview Processor"
             ),
             memory: MemorySnapshot(
                 timestamp: timestamp,
                 usedBytes: 8_589_934_592,
                 availableBytes: 8_589_934_592,
-                pressure: .normal
+                pressure: .normal,
+                appUtilization: 0.375,
+                wiredUtilization: 0.075,
+                compressedUtilization: 0.05
             ),
             storage: StorageSnapshot(
                 timestamp: timestamp,
@@ -49,15 +55,21 @@ nonisolated enum MetricFixtures {
             cpu: CPUSnapshot(
                 timestamp: timestamp,
                 utilization: 0.82,
+                userUtilization: 0.60,
+                systemUtilization: 0.22,
                 logicalCoreCount: 10,
                 performanceCoreCount: 6,
-                efficiencyCoreCount: 4
+                efficiencyCoreCount: 4,
+                chipName: "Preview Processor"
             ),
             memory: MemorySnapshot(
                 timestamp: timestamp,
                 usedBytes: 14_500_000_000,
                 availableBytes: 2_500_000_000,
-                pressure: .warning
+                pressure: .warning,
+                appUtilization: 0.6397,
+                wiredUtilization: 0.1279,
+                compressedUtilization: 0.0853
             ),
             storage: StorageSnapshot(
                 timestamp: timestamp,
@@ -93,15 +105,21 @@ nonisolated enum MetricFixtures {
             cpu: CPUSnapshot(
                 timestamp: timestamp,
                 utilization: 0.97,
+                userUtilization: 0.75,
+                systemUtilization: 0.22,
                 logicalCoreCount: 10,
                 performanceCoreCount: 6,
-                efficiencyCoreCount: 4
+                efficiencyCoreCount: 4,
+                chipName: "Preview Processor"
             ),
             memory: MemorySnapshot(
                 timestamp: timestamp,
                 usedBytes: 15_800_000_000,
                 availableBytes: 200_000_000,
-                pressure: .critical
+                pressure: .critical,
+                appUtilization: 0.7406,
+                wiredUtilization: 0.1481,
+                compressedUtilization: 0.0988
             ),
             storage: StorageSnapshot(
                 timestamp: timestamp,

@@ -23,7 +23,7 @@ struct SanePeekApp: App {
             DashboardView(appState: appState)
                 .preferredColorScheme(appState.settingsStore.appearance.colorScheme)
         }
-        .defaultSize(width: 840, height: 520)
+        .defaultSize(width: 1100, height: 900)
         .onChange(of: scenePhase) { _, newPhase in
             appState.handlePollingVisibilityChange(isVisible: newPhase == .active)
         }

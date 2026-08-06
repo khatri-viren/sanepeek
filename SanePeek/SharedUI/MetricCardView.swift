@@ -41,6 +41,12 @@ struct MetricCardView<Trailing: View>: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(model.primaryValue)
                             .font(MetricTypography.primaryMetric)
+                            // The trailing chart is greedy in both axes, so
+                            // without this the hero value loses the width fight
+                            // and wraps mid-unit ("16 / MB/ / s"). One line,
+                            // shrinking only if the card is genuinely too narrow.
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                             .contentTransition(.opacity)
                             .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: model.primaryValue)
 
@@ -48,8 +54,10 @@ struct MetricCardView<Trailing: View>: View {
                             Text(secondary)
                                 .font(MetricTypography.secondaryMetric)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
                     }
+                    .layoutPriority(1)
 
                     Spacer(minLength: 8)
 

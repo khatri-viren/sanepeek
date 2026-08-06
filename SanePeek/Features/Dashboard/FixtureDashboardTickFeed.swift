@@ -9,6 +9,13 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
     private let baseline: MetricsSnapshot
     private static let historyLimit = 60
 
+    /// App/Wired/Compressed shares of the used-memory fraction, matching
+    /// `MetricFixtures`'s split. Sum to 1 so the breakdown always accounts for the whole
+    /// used fraction.
+    private static let memoryAppShare = 0.75
+    private static let memoryWiredShare = 0.15
+    private static let memoryCompressedShare = 0.10
+
     init(interval: TimeInterval = 1, baseline: MetricsSnapshot) {
         self.interval = interval
         self.baseline = baseline
@@ -19,7 +26,12 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
             let task = Task { @MainActor in
                 var tickIndex = 0
                 var cpuHistory: [Double] = []
+                var cpuUserHistory: [Double] = []
+                var cpuSystemHistory: [Double] = []
                 var memoryHistory: [Double] = []
+                var memoryAppHistory: [Double] = []
+                var memoryWiredHistory: [Double] = []
+                var memoryCompressedHistory: [Double] = []
                 var networkDownloadHistory: [Double] = []
                 var gpuHistory: [Double] = []
 
@@ -29,8 +41,23 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                     if let utilization = snapshot.cpu?.utilization {
                         cpuHistory = Self.appending(cpuHistory, utilization)
                     }
+                    if let userUtilization = snapshot.cpu?.userUtilization {
+                        cpuUserHistory = Self.appending(cpuUserHistory, userUtilization)
+                    }
+                    if let systemUtilization = snapshot.cpu?.systemUtilization {
+                        cpuSystemHistory = Self.appending(cpuSystemHistory, systemUtilization)
+                    }
                     if let used = snapshot.memory?.usedBytes {
                         memoryHistory = Self.appending(memoryHistory, Double(used))
+                    }
+                    if let appUtilization = snapshot.memory?.appUtilization {
+                        memoryAppHistory = Self.appending(memoryAppHistory, appUtilization)
+                    }
+                    if let wiredUtilization = snapshot.memory?.wiredUtilization {
+                        memoryWiredHistory = Self.appending(memoryWiredHistory, wiredUtilization)
+                    }
+                    if let compressedUtilization = snapshot.memory?.compressedUtilization {
+                        memoryCompressedHistory = Self.appending(memoryCompressedHistory, compressedUtilization)
                     }
                     if let download = snapshot.network?.downloadBytesPerSecond {
                         networkDownloadHistory = Self.appending(networkDownloadHistory, download)
@@ -43,7 +70,12 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                         DashboardTick(
                             snapshot: snapshot,
                             cpuHistory: cpuHistory,
+                            cpuUserHistory: cpuUserHistory,
+                            cpuSystemHistory: cpuSystemHistory,
                             memoryHistory: memoryHistory,
+                            memoryAppHistory: memoryAppHistory,
+                            memoryWiredHistory: memoryWiredHistory,
+                            memoryCompressedHistory: memoryCompressedHistory,
                             networkDownloadHistory: networkDownloadHistory,
                             gpuHistory: gpuHistory
                         )
@@ -75,14 +107,23 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
         let wave = sin(Double(tickIndex) / 6)
         let timestamp = baseline.timestamp.advanced(by: Double(tickIndex))
 
-        let cpu = baseline.cpu.map { snapshot in
-            CPUSnapshot(
+        let cpu = baseline.cpu.map { snapshot -> CPUSnapshot in
+            let newUtilization = snapshot.utilization.map { clampFraction($0 + wave * 0.15) }
+            let scale: Double = {
+                guard let oldUtilization = snapshot.utilization, oldUtilization > 0, let newUtilization else { return 1 }
+                return newUtilization / oldUtilization
+            }()
+
+            return CPUSnapshot(
                 timestamp: timestamp,
                 availability: snapshot.availability,
-                utilization: snapshot.utilization.map { clampFraction($0 + wave * 0.15) },
+                utilization: newUtilization,
+                userUtilization: snapshot.userUtilization.map { clampFraction($0 * scale) },
+                systemUtilization: snapshot.systemUtilization.map { clampFraction($0 * scale) },
                 logicalCoreCount: snapshot.logicalCoreCount,
                 performanceCoreCount: snapshot.performanceCoreCount,
-                efficiencyCoreCount: snapshot.efficiencyCoreCount
+                efficiencyCoreCount: snapshot.efficiencyCoreCount,
+                chipName: snapshot.chipName
             )
         }
 
@@ -109,18 +150,30 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
         let memory = baseline.memory.map { snapshot -> MemorySnapshot in
             var usedBytes = snapshot.usedBytes
             var availableBytes = snapshot.availableBytes
+            var appUtilization = snapshot.appUtilization
+            var wiredUtilization = snapshot.wiredUtilization
+            var compressedUtilization = snapshot.compressedUtilization
             if let used = snapshot.usedBytes, let available = snapshot.availableBytes {
                 let total = Double(used) + Double(available)
-                let jitteredUsed = clampFraction(Double(used) / total + wave * 0.05) * total
+                let jitteredUsedFraction = clampFraction(Double(used) / total + wave * 0.05)
+                let jitteredUsed = jitteredUsedFraction * total
                 usedBytes = UInt64(jitteredUsed)
                 availableBytes = UInt64(total - jitteredUsed)
+                // Fixed App/Wired/Compressed shares of the jittered used fraction, so the
+                // breakdown moves in sync with `usedBytes` without needing independent jitter.
+                appUtilization = jitteredUsedFraction * Self.memoryAppShare
+                wiredUtilization = jitteredUsedFraction * Self.memoryWiredShare
+                compressedUtilization = jitteredUsedFraction * Self.memoryCompressedShare
             }
             return MemorySnapshot(
                 timestamp: timestamp,
                 availability: snapshot.availability,
                 usedBytes: usedBytes,
                 availableBytes: availableBytes,
-                pressure: snapshot.pressure
+                pressure: snapshot.pressure,
+                appUtilization: appUtilization,
+                wiredUtilization: wiredUtilization,
+                compressedUtilization: compressedUtilization
             )
         }
 

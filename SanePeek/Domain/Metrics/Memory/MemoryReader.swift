@@ -92,6 +92,10 @@ nonisolated struct MachMemorySystemAdapter: MemorySystemAdapter {
             return .failed(MetricFailure(kind: .systemUnavailable))
         }
 
+        let appPages = UInt64(statistics.active_count) + UInt64(statistics.inactive_count)
+        let wiredPages = UInt64(statistics.wire_count)
+        let compressedPages = UInt64(statistics.compressor_page_count)
+
         guard let usedPages = sumPages([
             UInt64(statistics.active_count),
             UInt64(statistics.inactive_count),
@@ -108,7 +112,10 @@ nonisolated struct MachMemorySystemAdapter: MemorySystemAdapter {
             MemorySystemSample(
                 pageCounts: MemoryPageCounts(
                     usedPages: usedPages,
-                    availablePages: availablePages
+                    availablePages: availablePages,
+                    appPages: appPages,
+                    wiredPages: wiredPages,
+                    compressedPages: compressedPages
                 ),
                 pageSize: UInt64(pageSize)
             )

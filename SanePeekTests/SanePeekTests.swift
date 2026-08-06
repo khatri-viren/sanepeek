@@ -104,13 +104,19 @@ struct SanePeekTests {
             timestamp: timestamp,
             usedBytes: 8_000,
             availableBytes: 2_000,
-            pressure: .normal
+            pressure: .normal,
+            appUtilization: 0.6,
+            wiredUtilization: 0.15,
+            compressedUtilization: 0.05
         )
         let bundle = MetricsSnapshot(timestamp: timestamp, cpu: cpu, memory: memory)
 
         #expect(bundle.cpu == cpu)
         #expect(bundle.memory == memory)
         #expect(bundle.storage == nil)
+        #expect(memory.appUtilization == 0.6)
+        #expect(memory.wiredUtilization == 0.15)
+        #expect(memory.compressedUtilization == 0.05)
 
         let unavailableCPU = CPUSnapshot.unavailable(at: timestamp, reason: .unsupported)
         let unavailableMemory = MemorySnapshot.unavailable(at: timestamp, reason: .noData)
@@ -340,7 +346,7 @@ struct SanePeekTests {
 
     @Test("Memory page conversion produces byte-based snapshots")
     func memoryPageConversionProducesByteBasedSnapshots() {
-        let pages = MemoryPageCounts(usedPages: 3, availablePages: 2)
+        let pages = MemoryPageCounts(usedPages: 3, availablePages: 2, appPages: 0, wiredPages: 0, compressedPages: 0)
 
         let result = MemoryByteConverter.snapshot(
             from: pages,
@@ -352,6 +358,26 @@ struct SanePeekTests {
         #expect(result.value?.usedBytes == 12_288)
         #expect(result.value?.availableBytes == 8_192)
         #expect(result.value?.pressure == .warning)
+        #expect(result.value?.appUtilization == 0)
+        #expect(result.value?.wiredUtilization == 0)
+        #expect(result.value?.compressedUtilization == 0)
+    }
+
+    @Test("Memory page conversion breaks used memory into App/Wired/Compressed fractions")
+    func memoryPageConversionProducesAppWiredCompressedFractions() {
+        let pages = MemoryPageCounts(usedPages: 3, availablePages: 2, appPages: 2, wiredPages: 1, compressedPages: 0)
+
+        let result = MemoryByteConverter.snapshot(
+            from: pages,
+            pageSize: 4_096,
+            timestamp: .zero,
+            pressure: .warning
+        )
+
+        // total = (3 + 2) pages * 4_096 = 20_480 bytes; app = 2 pages, wired = 1 page.
+        #expect(result.value?.appUtilization == 0.4)
+        #expect(result.value?.wiredUtilization == 0.2)
+        #expect(result.value?.compressedUtilization == 0)
     }
 
     @Test("Metric formatter supports decimal and binary byte units")
@@ -440,7 +466,7 @@ struct SanePeekTests {
         let adapter = FixtureMemorySystemAdapter(
             result: .available(
                 MemorySystemSample(
-                    pageCounts: MemoryPageCounts(usedPages: 3, availablePages: 2),
+                    pageCounts: MemoryPageCounts(usedPages: 3, availablePages: 2, appPages: 2, wiredPages: 1, compressedPages: 0),
                     pageSize: 4_096
                 )
             )
@@ -455,6 +481,9 @@ struct SanePeekTests {
         #expect(firstResult.value?.usedBytes == 12_288)
         #expect(firstResult.value?.availableBytes == 8_192)
         #expect(firstResult.value?.pressure == .warning)
+        #expect(firstResult.value?.appUtilization == 0.4)
+        #expect(firstResult.value?.wiredUtilization == 0.2)
+        #expect(firstResult.value?.compressedUtilization == 0)
         #expect(secondResult.value?.pressure == .critical)
     }
 

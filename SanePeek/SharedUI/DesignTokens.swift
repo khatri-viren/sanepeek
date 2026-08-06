@@ -26,13 +26,39 @@ nonisolated enum MetricTypography {
 /// PRD; teal is an inferred accent kept visually distinct from the other five.
 nonisolated enum MetricPalette {
     static let cpu = Color.blue
+    /// Second tone in the CPU card's user/system breakdown; a shade of `cpu`
+    /// rather than a new hue, so the pair still reads as one metric.
+    static let cpuSystem = Color.blue.opacity(0.5)
     static let memory = Color.purple
+    /// Wired/Compressed tones in the Memory card's App/Wired/Compressed breakdown;
+    /// shades of `memory` rather than new hues, matching the `cpu`/`cpuSystem` pattern.
+    static let memoryWired = Color.purple.opacity(0.6)
+    static let memoryCompressed = Color.purple.opacity(0.35)
     static let storage = Color.gray
     static let network = Color.cyan
     static let battery = Color.green
     static let gpu = Color.teal
     static let warning = Color.orange
     static let critical = Color.red
+
+    /// Shared "unfilled" swatch/bar fill for a breakdown's remainder (CPU's Idle,
+    /// Memory's Free). `Color.secondary.opacity(0.3)` nearly disappeared against the
+    /// card's dark material background; this is deliberately more opaque.
+    static let idleFill = Color.secondary.opacity(0.1)
+}
+
+/// Tuning for the stacked-history charts shared by the CPU and Memory hero cards.
+nonisolated enum MetricChartLayout {
+    /// Matches the ring buffer capacity `MetricsEngine`/`FixtureDashboardTickFeed`
+    /// retain history in, and the "60s...now" axis labels below each chart.
+    static let historyWindowSize = 60
+
+    /// Fraction of each bar's slot the bar itself occupies — the remainder is
+    /// always a gap, whether the slot is wide (big window) or narrow (small
+    /// window), instead of a fixed point value that either wastes space on a
+    /// big card or disappears on a small one.
+    static let barWidthFraction: CGFloat = 0.7
+    static let minimumBarWidth: CGFloat = 2
 }
 
 private struct MetricCardBackground: ViewModifier {

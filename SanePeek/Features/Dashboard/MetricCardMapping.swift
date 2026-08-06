@@ -54,6 +54,33 @@ nonisolated enum MetricCardMapping {
         )
     }
 
+    /// Nil when the breakdown can't be computed (snapshot missing, unavailable,
+    /// or the first sample before a user/system delta exists) — `CPUCardView`
+    /// falls back to placeholder text and an empty chart in that case.
+    static func cpuDetail(
+        _ snapshot: CPUSnapshot?,
+        userHistory: [Double],
+        systemHistory: [Double],
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> CPUCardDetail? {
+        guard let snapshot, snapshot.availability.isAvailable,
+              let user = snapshot.userUtilization,
+              let system = snapshot.systemUtilization
+        else {
+            return nil
+        }
+
+        let idle = max(0, 1 - user - system)
+        return CPUCardDetail(
+            chipName: snapshot.chipName,
+            userPercentageText: formatter.percentage(user),
+            systemPercentageText: formatter.percentage(system),
+            idlePercentageText: formatter.percentage(idle),
+            userHistory: userHistory,
+            systemHistory: systemHistory
+        )
+    }
+
     static func memoryCard(
         _ snapshot: MemorySnapshot?,
         history: [Double],
@@ -72,7 +99,16 @@ nonisolated enum MetricCardMapping {
             }
         }
 
-        let primary = formatter.bytes(snapshot.usedBytes)
+        let usedFraction: Double? = {
+            guard let used = snapshot.usedBytes, let available = snapshot.availableBytes,
+                  used + available > 0
+            else {
+                return nil
+            }
+            return Double(used) / Double(used + available)
+        }()
+
+        let primary = formatter.percentage(usedFraction)
         let secondary = snapshot.availableBytes.map { "\(formatter.bytes($0)) available" }
 
         return MetricCardModel(
@@ -88,6 +124,41 @@ nonisolated enum MetricCardMapping {
             usageFraction: nil,
             accessibilityLabel: title,
             accessibilityValue: accessibilityValue(primary: primary, secondary: secondary, status: status)
+        )
+    }
+
+    /// Nil when the breakdown can't be computed (snapshot missing, unavailable, or the
+    /// App/Wired/Compressed fractions aren't available) — `MemoryCardView` falls back to
+    /// placeholder text and an empty chart in that case.
+    static func memoryDetail(
+        _ snapshot: MemorySnapshot?,
+        appHistory: [Double],
+        wiredHistory: [Double],
+        compressedHistory: [Double],
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> MemoryCardDetail? {
+        guard let snapshot, snapshot.availability.isAvailable,
+              let used = snapshot.usedBytes,
+              let available = snapshot.availableBytes,
+              let app = snapshot.appUtilization,
+              let wired = snapshot.wiredUtilization,
+              let compressed = snapshot.compressedUtilization
+        else {
+            return nil
+        }
+
+        let free = max(0, 1 - app - wired - compressed)
+        let totalBytes = used + available
+
+        return MemoryCardDetail(
+            totalRAMText: formatter.bytes(totalBytes),
+            appPercentageText: formatter.percentage(app),
+            wiredPercentageText: formatter.percentage(wired),
+            compressedPercentageText: formatter.percentage(compressed),
+            freePercentageText: formatter.percentage(free),
+            appHistory: appHistory,
+            wiredHistory: wiredHistory,
+            compressedHistory: compressedHistory
         )
     }
 

@@ -3,7 +3,12 @@ import os
 
 nonisolated enum MetricHistoryKind: CaseIterable, Hashable, Sendable {
     case cpuUtilization
+    case cpuUserUtilization
+    case cpuSystemUtilization
     case memoryUsedBytes
+    case memoryAppUtilization
+    case memoryWiredUtilization
+    case memoryCompressedUtilization
     case networkDownloadBytesPerSecond
     case networkUploadBytesPerSecond
     case gpuUtilization
@@ -274,8 +279,23 @@ actor MetricsEngine {
         if case .available = cpuResult, let utilization = publishedCPU?.utilization {
             history[.cpuUtilization]?.append(MetricSample(timestamp: tick, value: utilization))
         }
+        if case .available = cpuResult, let userUtilization = publishedCPU?.userUtilization {
+            history[.cpuUserUtilization]?.append(MetricSample(timestamp: tick, value: userUtilization))
+        }
+        if case .available = cpuResult, let systemUtilization = publishedCPU?.systemUtilization {
+            history[.cpuSystemUtilization]?.append(MetricSample(timestamp: tick, value: systemUtilization))
+        }
         if case .available = memoryResult, let usedBytes = publishedMemory?.usedBytes {
             history[.memoryUsedBytes]?.append(MetricSample(timestamp: tick, value: Double(usedBytes)))
+        }
+        if case .available = memoryResult, let appUtilization = publishedMemory?.appUtilization {
+            history[.memoryAppUtilization]?.append(MetricSample(timestamp: tick, value: appUtilization))
+        }
+        if case .available = memoryResult, let wiredUtilization = publishedMemory?.wiredUtilization {
+            history[.memoryWiredUtilization]?.append(MetricSample(timestamp: tick, value: wiredUtilization))
+        }
+        if case .available = memoryResult, let compressedUtilization = publishedMemory?.compressedUtilization {
+            history[.memoryCompressedUtilization]?.append(MetricSample(timestamp: tick, value: compressedUtilization))
         }
         if case .available = networkResult {
             if let download = publishedNetwork?.downloadBytesPerSecond {
@@ -309,9 +329,12 @@ actor MetricsEngine {
             timestamp: tick,
             availability: result.availability,
             utilization: previous?.utilization,
+            userUtilization: previous?.userUtilization,
+            systemUtilization: previous?.systemUtilization,
             logicalCoreCount: previous?.logicalCoreCount,
             performanceCoreCount: previous?.performanceCoreCount,
-            efficiencyCoreCount: previous?.efficiencyCoreCount
+            efficiencyCoreCount: previous?.efficiencyCoreCount,
+            chipName: previous?.chipName
         )
     }
 
@@ -326,7 +349,10 @@ actor MetricsEngine {
             availability: result.availability,
             usedBytes: previous?.usedBytes,
             availableBytes: previous?.availableBytes,
-            pressure: previous?.pressure
+            pressure: previous?.pressure,
+            appUtilization: previous?.appUtilization,
+            wiredUtilization: previous?.wiredUtilization,
+            compressedUtilization: previous?.compressedUtilization
         )
     }
 

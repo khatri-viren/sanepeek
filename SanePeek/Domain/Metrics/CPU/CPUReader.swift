@@ -11,15 +11,18 @@ nonisolated struct CPUHardwareInfo: Sendable, Equatable {
     let logicalCoreCount: Int?
     let performanceCoreCount: Int?
     let efficiencyCoreCount: Int?
+    let chipName: String?
 
     init(
         logicalCoreCount: Int? = nil,
         performanceCoreCount: Int? = nil,
-        efficiencyCoreCount: Int? = nil
+        efficiencyCoreCount: Int? = nil,
+        chipName: String? = nil
     ) {
         self.logicalCoreCount = logicalCoreCount
         self.performanceCoreCount = performanceCoreCount
         self.efficiencyCoreCount = efficiencyCoreCount
+        self.chipName = chipName
     }
 }
 
@@ -54,22 +57,25 @@ actor LiveCPUReader: CPUReader {
     func read(at timestamp: MetricTimestamp) async -> MetricResult<CPUSnapshot> {
         switch adapter.read(at: timestamp) {
         case let .available(sample):
-            let utilization = previousCounter.map { previous in
-                CPUUtilizationCalculator.calculate(
+            let breakdown = previousCounter.flatMap { previous in
+                CPUUtilizationCalculator.calculateBreakdown(
                     from: previous,
                     to: sample.counter,
                     counterMaximum: counterMaximum
                 ).value
-            } ?? nil
+            }
             previousCounter = sample.counter
 
             return .available(
                 CPUSnapshot(
                     timestamp: timestamp,
-                    utilization: utilization,
+                    utilization: breakdown?.total,
+                    userUtilization: breakdown?.user,
+                    systemUtilization: breakdown?.system,
                     logicalCoreCount: sample.hardware.logicalCoreCount,
                     performanceCoreCount: sample.hardware.performanceCoreCount,
-                    efficiencyCoreCount: sample.hardware.efficiencyCoreCount
+                    efficiencyCoreCount: sample.hardware.efficiencyCoreCount,
+                    chipName: sample.hardware.chipName
                 )
             )
         case let .unavailable(reason):
@@ -170,7 +176,8 @@ nonisolated struct MachCPUSystemAdapter: CPUSystemAdapter {
         let hardware = CPUHardwareInfo(
             logicalCoreCount: logicalCoreCount > 0 ? logicalCoreCount : nil,
             performanceCoreCount: readSysctlInt32(named: "hw.perflevel0.logicalcpu"),
-            efficiencyCoreCount: readSysctlInt32(named: "hw.perflevel1.logicalcpu")
+            efficiencyCoreCount: readSysctlInt32(named: "hw.perflevel1.logicalcpu"),
+            chipName: readSysctlString(named: "machdep.cpu.brand_string")
         )
 
         return .available(CPUSystemSample(counter: aggregateCounter, hardware: hardware))
@@ -187,5 +194,25 @@ nonisolated struct MachCPUSystemAdapter: CPUSystemAdapter {
             return nil
         }
         return Int(value)
+    }
+
+    private func readSysctlString(named name: String) -> String? {
+        var size = 0
+        guard name.withCString({ sysctlbyname($0, nil, &size, nil, 0) }) == 0, size > 0 else {
+            return nil
+        }
+
+        var buffer = [CChar](repeating: 0, count: size)
+        let result = name.withCString { key in
+            buffer.withUnsafeMutableBufferPointer { ptr in
+                sysctlbyname(key, ptr.baseAddress, &size, nil, 0)
+            }
+        }
+
+        guard result == 0 else {
+            return nil
+        }
+        let trimmed = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

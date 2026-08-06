@@ -11,8 +11,6 @@ struct DashboardView: View {
     let appState: AppState
     @State private var viewModel: DashboardViewModel
 
-    private let columns = [GridItem(.adaptive(minimum: 260, maximum: 380), spacing: MetricSpacing.gridSpacing)]
-
     init(appState: AppState) {
         self.appState = appState
         let settingsStore = appState.settingsStore
@@ -47,7 +45,7 @@ struct DashboardView: View {
 
             Divider()
 
-            if viewModel.cards.isEmpty {
+            if !viewModel.hasReceivedData {
                 ContentUnavailableView(
                     "Monitoring is getting ready",
                     systemImage: "chart.bar.xaxis",
@@ -56,11 +54,24 @@ struct DashboardView: View {
                 Spacer(minLength: 0)
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: MetricSpacing.gridSpacing) {
+                    // The CPU and Memory cards are twice as wide as their
+                    // siblings, so they reflow with them rather than sitting in
+                    // full-width rows of their own above the grid.
+                    MetricCardFlowLayout {
+                        CPUCardView(model: viewModel.cpuCard, detail: viewModel.cpuDetail)
+                            .metricCardSpan(2)
+
+                        MemoryCardView(model: viewModel.memoryCard, detail: viewModel.memoryDetail)
+                            .metricCardSpan(2)
+
                         ForEach(viewModel.cards) { card in
                             MetricCardView(model: card) {
                                 trailingView(for: card)
                             }
+                            // Fill the row height the layout offers, so cards
+                            // sharing a row line up at the bottom instead of
+                            // ending wherever their own content happens to.
+                            .frame(maxHeight: .infinity, alignment: .top)
                         }
                     }
                     .padding(.bottom, 4)
@@ -79,7 +90,12 @@ struct DashboardView: View {
         if let usageFraction = card.usageFraction {
             StorageUsageRing(fraction: usageFraction, color: card.accentColor)
         } else if !card.sparklineValues.isEmpty {
+            // A `Chart` has no intrinsic width, so bound it: the hero value
+            // (higher layout priority) takes what it needs and the sparkline
+            // gets the rest, without collapsing to a sliver on a narrow card
+            // or stretching past the value on a wide one.
             SparklineView(values: card.sparklineValues, color: card.accentColor)
+                .frame(minWidth: 72, maxWidth: 140)
         } else {
             EmptyView()
         }
