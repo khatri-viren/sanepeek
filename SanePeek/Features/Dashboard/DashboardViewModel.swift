@@ -12,6 +12,8 @@ final class DashboardViewModel {
     private(set) var memoryDetail: MemoryCardDetail?
     private(set) var temperatureCard = MetricCardMapping.temperatureCard(nil, history: [])
     private(set) var temperatureDetail: TemperatureCardDetail?
+    private(set) var networkCard = MetricCardMapping.networkCard(nil, history: [])
+    private(set) var networkDetail: NetworkCardDetail?
     private(set) var cards: [MetricCardModel] = []
     private(set) var hasReceivedData = false
 
@@ -64,9 +66,16 @@ final class DashboardViewModel {
         temperatureCard = MetricCardMapping.temperatureCard(snapshot.temperature, history: tick.temperatureHistory, formatter: formatter)
         temperatureDetail = MetricCardMapping.temperatureDetail(snapshot.temperature, formatter: formatter)
 
+        networkCard = MetricCardMapping.networkCard(snapshot.network, history: tick.networkDownloadHistory, formatter: formatter)
+        networkDetail = MetricCardMapping.networkDetail(
+            snapshot.network,
+            downloadHistory: tick.networkDownloadHistory,
+            uploadHistory: tick.networkUploadHistory,
+            formatter: formatter
+        )
+
         var next: [MetricCardModel] = [
             MetricCardMapping.storageCard(snapshot.storage, formatter: formatter),
-            MetricCardMapping.networkCard(snapshot.network, history: tick.networkDownloadHistory, formatter: formatter),
             MetricCardMapping.batteryCard(snapshot.battery, formatter: formatter)
         ]
 

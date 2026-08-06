@@ -239,6 +239,24 @@ nonisolated enum MetricCardMapping {
         )
     }
 
+    /// Nil when the snapshot is missing/unavailable — `NetworkCardView` falls back to
+    /// placeholder text and an empty chart in that case, matching `temperatureDetail`.
+    static func networkDetail(
+        _ snapshot: NetworkSnapshot?,
+        downloadHistory: [Double],
+        uploadHistory: [Double],
+        formatter: MetricFormatter = MetricFormatter()
+    ) -> NetworkCardDetail? {
+        guard let snapshot, snapshot.availability.isAvailable else { return nil }
+        return NetworkCardDetail(
+            subtitleText: networkSubtitleText(snapshot),
+            downloadText: throughputText(snapshot.downloadBytesPerSecond, formatter: formatter),
+            uploadText: snapshot.uploadBytesPerSecond.map { throughputText($0, formatter: formatter) },
+            downloadHistory: downloadHistory,
+            uploadHistory: uploadHistory
+        )
+    }
+
     static func batteryCard(
         _ snapshot: BatterySnapshot?,
         formatter: MetricFormatter = MetricFormatter()
@@ -402,6 +420,21 @@ nonisolated enum MetricCardMapping {
     private static func throughputText(_ bytesPerSecond: Double?, formatter: MetricFormatter) -> String {
         guard let bytesPerSecond, bytesPerSecond.isFinite, bytesPerSecond >= 0 else { return "Unavailable" }
         return "\(formatter.bytes(UInt64(bytesPerSecond)))/s"
+    }
+
+    private static func networkSubtitleText(_ snapshot: NetworkSnapshot) -> String? {
+        if let interfaces = snapshot.interfaceNames, !interfaces.isEmpty {
+            return interfaces.joined(separator: ", ")
+        }
+        return snapshot.connectivity.map { connectivityText($0) }
+    }
+
+    private static func connectivityText(_ connectivity: NetworkConnectivity) -> String {
+        switch connectivity {
+        case .connected: "Connected"
+        case .disconnected: "Not connected"
+        case .unknown: "Unknown"
+        }
     }
 
     private static func batterySecondary(_ snapshot: BatterySnapshot, formatter: MetricFormatter) -> String? {

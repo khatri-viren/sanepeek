@@ -181,6 +181,57 @@ struct MetricCardMappingTests {
         #expect(card.sparklineValues == [1, 2, 3])
     }
 
+    @Test("Network detail formats download/upload text, passes through history, and prefers interface names for the subtitle")
+    func networkDetailMapsAvailableSnapshot() {
+        let detail = MetricCardMapping.networkDetail(
+            NetworkSnapshot(
+                timestamp: Self.timestamp,
+                downloadBytesPerSecond: 1_000_000,
+                uploadBytesPerSecond: 500_000,
+                connectivity: .connected,
+                interfaceNames: ["en0"]
+            ),
+            downloadHistory: [1, 2],
+            uploadHistory: [3, 4]
+        )
+
+        #expect(detail?.subtitleText == "en0")
+        #expect(detail?.downloadText == "1 MB/s")
+        #expect(detail?.uploadText == "500 kB/s")
+        #expect(detail?.downloadHistory == [1, 2])
+        #expect(detail?.uploadHistory == [3, 4])
+    }
+
+    @Test("Network detail falls back to a connectivity word when no interface names are reported")
+    func networkDetailSubtitleFallsBackToConnectivity() {
+        let detail = MetricCardMapping.networkDetail(
+            NetworkSnapshot(
+                timestamp: Self.timestamp,
+                downloadBytesPerSecond: 1_000_000,
+                uploadBytesPerSecond: 500_000,
+                connectivity: .connected,
+                interfaceNames: []
+            ),
+            downloadHistory: [],
+            uploadHistory: []
+        )
+
+        #expect(detail?.subtitleText == "Connected")
+    }
+
+    @Test("Network detail is nil for a missing or unavailable snapshot")
+    func networkDetailHandlesUnavailability() {
+        let nilSnapshot = MetricCardMapping.networkDetail(nil, downloadHistory: [], uploadHistory: [])
+        let unavailable = MetricCardMapping.networkDetail(
+            .unavailable(at: Self.timestamp, reason: .temporarilyUnavailable),
+            downloadHistory: [],
+            uploadHistory: []
+        )
+
+        #expect(nilSnapshot == nil)
+        #expect(unavailable == nil)
+    }
+
     @Test("Battery card status only evaluates thresholds while unplugged")
     func batteryCardStatusIgnoresLowChargeWhilePlugged() {
         let chargingLow = MetricCardMapping.batteryCard(

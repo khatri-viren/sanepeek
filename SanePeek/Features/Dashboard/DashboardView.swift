@@ -67,6 +67,9 @@ struct DashboardView: View {
                         TemperatureCardView(model: viewModel.temperatureCard, detail: viewModel.temperatureDetail)
                             .metricCardSpan(2)
 
+                        NetworkCardView(model: viewModel.networkCard, detail: viewModel.networkDetail)
+                            .metricCardSpan(2)
+
                         MemoryPressureCardView(status: viewModel.memoryCard.status)
                             .frame(maxHeight: .infinity, alignment: .top)
 

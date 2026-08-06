@@ -36,6 +36,12 @@ nonisolated enum MetricPalette {
     static let memoryCompressed = Color.purple.opacity(0.35)
     static let storage = Color.gray
     static let network = Color.cyan
+    /// Network's upload-direction data color. Shares `warning`'s hue but is a
+    /// distinct token, not a reuse: `warning` is load-bearing status-pill
+    /// semantics (CPU/storage/battery/temperature all tint their pill orange
+    /// for "warning"), while this is a plain data-series color — network has
+    /// no threshold policy and never shows a status pill.
+    static let networkUpload = Color.orange
     static let battery = Color.green
     static let gpu = Color.teal
     /// Temperature has no assigned color in the PRD either; pink is the only
@@ -67,6 +73,10 @@ nonisolated enum MetricChartLayout {
     /// big card or disappears on a small one.
     static let barWidthFraction: CGFloat = 0.7
     static let minimumBarWidth: CGFloat = 2
+
+    /// Floor for the Network card's bidirectional chart y-domain so it never
+    /// collapses to a degenerate 0...0 range when both download and upload are idle.
+    static let networkIdleFloorBytesPerSecond: Double = 1_024
 }
 
 private struct MetricCardBackground: ViewModifier {

@@ -33,6 +33,7 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                 var memoryWiredHistory: [Double] = []
                 var memoryCompressedHistory: [Double] = []
                 var networkDownloadHistory: [Double] = []
+                var networkUploadHistory: [Double] = []
                 var gpuHistory: [Double] = []
                 var temperatureHistory: [Double] = []
 
@@ -63,6 +64,9 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                     if let download = snapshot.network?.downloadBytesPerSecond {
                         networkDownloadHistory = Self.appending(networkDownloadHistory, download)
                     }
+                    if let upload = snapshot.network?.uploadBytesPerSecond {
+                        networkUploadHistory = Self.appending(networkUploadHistory, upload)
+                    }
                     if let utilization = snapshot.gpu?.utilization {
                         gpuHistory = Self.appending(gpuHistory, utilization)
                     }
@@ -82,6 +86,7 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                             memoryWiredHistory: memoryWiredHistory,
                             memoryCompressedHistory: memoryCompressedHistory,
                             networkDownloadHistory: networkDownloadHistory,
+                            networkUploadHistory: networkUploadHistory,
                             gpuHistory: gpuHistory,
                             temperatureHistory: temperatureHistory
                         )
@@ -111,6 +116,9 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
 
     private static func varying(_ baseline: MetricsSnapshot, tickIndex: Int) -> MetricsSnapshot {
         let wave = sin(Double(tickIndex) / 6)
+        // Phase-shifted by pi/2 from `wave` so network upload moves independently
+        // from download instead of in lockstep.
+        let uploadWave = sin(Double(tickIndex) / 6 + Double.pi / 2)
         let timestamp = baseline.timestamp.advanced(by: Double(tickIndex))
 
         let cpu = baseline.cpu.map { snapshot -> CPUSnapshot in
@@ -138,7 +146,7 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                 timestamp: timestamp,
                 availability: snapshot.availability,
                 downloadBytesPerSecond: snapshot.downloadBytesPerSecond.map { max(0, $0 * (1 + wave * 0.4)) },
-                uploadBytesPerSecond: snapshot.uploadBytesPerSecond,
+                uploadBytesPerSecond: snapshot.uploadBytesPerSecond.map { max(0, $0 * (1 + uploadWave * 0.4)) },
                 connectivity: snapshot.connectivity,
                 interfaceNames: snapshot.interfaceNames
             )

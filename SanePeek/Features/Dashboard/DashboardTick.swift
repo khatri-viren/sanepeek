@@ -12,6 +12,7 @@ nonisolated struct DashboardTick: Sendable, Equatable {
     let memoryWiredHistory: [Double]
     let memoryCompressedHistory: [Double]
     let networkDownloadHistory: [Double]
+    let networkUploadHistory: [Double]
     let gpuHistory: [Double]
     let temperatureHistory: [Double]
 }
