@@ -64,6 +64,9 @@ struct DashboardView: View {
                         MemoryCardView(model: viewModel.memoryCard, detail: viewModel.memoryDetail)
                             .metricCardSpan(2)
 
+                        MemoryPressureCardView(status: viewModel.memoryCard.status)
+                            .frame(maxHeight: .infinity, alignment: .top)
+
                         ForEach(viewModel.cards) { card in
                             MetricCardView(model: card) {
                                 trailingView(for: card)

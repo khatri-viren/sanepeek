@@ -92,21 +92,32 @@ nonisolated struct MachMemorySystemAdapter: MemorySystemAdapter {
             return .failed(MetricFailure(kind: .systemUnavailable))
         }
 
-        let appPages = UInt64(statistics.active_count) + UInt64(statistics.inactive_count)
+        // `active_count`/`inactive_count` mix in reclaimable file-cache pages
+        // (Activity Monitor's "Cached Files"), so they can't be used directly
+        // for the App bucket. Activity Monitor derives App Memory as
+        // internal (anonymous) pages minus the purgeable ones, which is what
+        // `internal_page_count`/`purgeable_count` give us directly.
+        let internalPages = UInt64(statistics.internal_page_count)
+        let purgeablePages = UInt64(statistics.purgeable_count)
+        let appPages = internalPages > purgeablePages ? internalPages - purgeablePages : 0
         let wiredPages = UInt64(statistics.wire_count)
         let compressedPages = UInt64(statistics.compressor_page_count)
 
-        guard let usedPages = sumPages([
+        guard let rawTotalPages = sumPages([
+            UInt64(statistics.free_count),
             UInt64(statistics.active_count),
             UInt64(statistics.inactive_count),
             UInt64(statistics.wire_count),
-            UInt64(statistics.compressor_page_count)
-        ]), let availablePages = sumPages([
-            UInt64(statistics.free_count),
+            UInt64(statistics.compressor_page_count),
             UInt64(statistics.speculative_count)
-        ]) else {
+        ]), let usedPages = sumPages([appPages, wiredPages, compressedPages]) else {
             return .failed(MetricFailure(kind: .invalidData))
         }
+
+        // Everything that isn't App/Wired/Compressed reads as "Free" here,
+        // which folds in reclaimable file-cache pages the same way Activity
+        // Monitor's memory-pressure gauge treats them as available.
+        let availablePages = rawTotalPages > usedPages ? rawTotalPages - usedPages : 0
 
         return .available(
             MemorySystemSample(
@@ -146,7 +157,26 @@ final class DispatchMemoryPressureSource: MemoryPressureSource, @unchecked Senda
         pressureSource.setEventHandler { [weak self, pressureSource] in
             self?.update(pressureSource.data)
         }
+        // The event handler only fires on a pressure *transition*, never with the
+        // current level at startup — on a Mac that stays "normal" the whole session,
+        // it may never fire at all, leaving `pressure` nil indefinitely. Seed it
+        // synchronously from the same level the dispatch source itself is driven by.
+        pressure = Self.currentSystemPressure()
         start()
+    }
+
+    private static func currentSystemPressure() -> MemoryPressure? {
+        var level: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        guard sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0 else {
+            return nil
+        }
+        switch level {
+        case 1: return .normal
+        case 2: return .warning
+        case 4: return .critical
+        default: return nil
+        }
     }
 
     var currentPressure: MemoryPressure? {

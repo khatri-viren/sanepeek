@@ -41,6 +41,10 @@ nonisolated enum MetricPalette {
     static let warning = Color.orange
     static let critical = Color.red
 
+    /// Gauge-only "normal" zone color; distinct from `battery` even though both are
+    /// green, since this represents the pressure scale's face, not a metric identity.
+    static let pressureNormal = Color.green
+
     /// Shared "unfilled" swatch/bar fill for a breakdown's remainder (CPU's Idle,
     /// Memory's Free). `Color.secondary.opacity(0.3)` nearly disappeared against the
     /// card's dark material background; this is deliberately more opaque.
