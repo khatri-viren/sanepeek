@@ -42,37 +42,51 @@ final class DashboardViewModel {
         }
     }
 
+    /// Every write below is guarded by an equality check before assigning. `@Observable`'s
+    /// setter has no such check of its own — it calls `withMutation` unconditionally — so
+    /// without this, a metric that hasn't changed (e.g. one outside the engine's active set
+    /// while polling is narrowed to the menu bar's enabled subset) still invalidates every view
+    /// observing that property on every tick. All the mapped types here are `Equatable`
+    /// specifically to make this cheap (performance review P1).
     private func apply(_ tick: DashboardTick) {
         let snapshot = tick.snapshot
         let formatter = formatterProvider()
 
-        cpuCard = MetricCardMapping.cpuCard(snapshot.cpu, history: tick.cpuHistory, formatter: formatter)
-        cpuDetail = MetricCardMapping.cpuDetail(
+        let newCPUCard = MetricCardMapping.cpuCard(snapshot.cpu, history: tick.cpuHistory, formatter: formatter)
+        if newCPUCard != cpuCard { cpuCard = newCPUCard }
+        let newCPUDetail = MetricCardMapping.cpuDetail(
             snapshot.cpu,
             userHistory: tick.cpuUserHistory,
             systemHistory: tick.cpuSystemHistory,
             formatter: formatter
         )
+        if newCPUDetail != cpuDetail { cpuDetail = newCPUDetail }
 
-        memoryCard = MetricCardMapping.memoryCard(snapshot.memory, history: tick.memoryHistory, formatter: formatter)
-        memoryDetail = MetricCardMapping.memoryDetail(
+        let newMemoryCard = MetricCardMapping.memoryCard(snapshot.memory, history: tick.memoryHistory, formatter: formatter)
+        if newMemoryCard != memoryCard { memoryCard = newMemoryCard }
+        let newMemoryDetail = MetricCardMapping.memoryDetail(
             snapshot.memory,
             appHistory: tick.memoryAppHistory,
             wiredHistory: tick.memoryWiredHistory,
             compressedHistory: tick.memoryCompressedHistory,
             formatter: formatter
         )
+        if newMemoryDetail != memoryDetail { memoryDetail = newMemoryDetail }
 
-        temperatureCard = MetricCardMapping.temperatureCard(snapshot.temperature, history: tick.temperatureHistory, formatter: formatter)
-        temperatureDetail = MetricCardMapping.temperatureDetail(snapshot.temperature, formatter: formatter)
+        let newTemperatureCard = MetricCardMapping.temperatureCard(snapshot.temperature, history: tick.temperatureHistory, formatter: formatter)
+        if newTemperatureCard != temperatureCard { temperatureCard = newTemperatureCard }
+        let newTemperatureDetail = MetricCardMapping.temperatureDetail(snapshot.temperature, formatter: formatter)
+        if newTemperatureDetail != temperatureDetail { temperatureDetail = newTemperatureDetail }
 
-        networkCard = MetricCardMapping.networkCard(snapshot.network, history: tick.networkDownloadHistory, formatter: formatter)
-        networkDetail = MetricCardMapping.networkDetail(
+        let newNetworkCard = MetricCardMapping.networkCard(snapshot.network, history: tick.networkDownloadHistory, formatter: formatter)
+        if newNetworkCard != networkCard { networkCard = newNetworkCard }
+        let newNetworkDetail = MetricCardMapping.networkDetail(
             snapshot.network,
             downloadHistory: tick.networkDownloadHistory,
             uploadHistory: tick.networkUploadHistory,
             formatter: formatter
         )
+        if newNetworkDetail != networkDetail { networkDetail = newNetworkDetail }
 
         var next: [MetricCardModel] = [
             MetricCardMapping.storageCard(snapshot.storage, formatter: formatter),
@@ -83,8 +97,8 @@ final class DashboardViewModel {
             next.append(gpuCard)
         }
 
-        cards = next
-        hasReceivedData = true
+        if next != cards { cards = next }
+        if !hasReceivedData { hasReceivedData = true }
     }
 
     /// Looks up the current card for any metric, regardless of whether it's one of the four

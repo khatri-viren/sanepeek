@@ -173,17 +173,41 @@ nonisolated struct MetricFormatter: Sendable, Equatable {
         availability.userMessage ?? "Unavailable"
     }
 
+    private static let numberFormatterLock = NSLock()
+    // Guarded by `numberFormatterLock`, not by actor isolation — every access below takes the
+    // lock first, so this is safe despite the compiler not being able to see that.
+    nonisolated(unsafe) private static var numberFormatterCache: [Int: NumberFormatter] = [:]
+
+    /// Reuses one `NumberFormatter` per (min, max) fraction-digit pair instead of allocating a
+    /// fresh formatter — and a fresh `Locale` — on every call. This runs several times per
+    /// metrics tick (once per formatted card value), which showed up as real allocation churn
+    /// under profiling (performance review P2). `NumberFormatter` isn't documented thread-safe
+    /// for concurrent `string(from:)` calls, so access is serialized with a lock rather than
+    /// relying on `MetricFormatter`'s own `Sendable` conformance to make that safe.
     private static func number(
         _ value: Double,
         maximumFractionDigits: Int,
         minimumFractionDigits: Int = 0
     ) -> String {
-        let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.numberStyle = .decimal
-        formatter.usesGroupingSeparator = false
-        formatter.minimumFractionDigits = max(minimumFractionDigits, 0)
-        formatter.maximumFractionDigits = min(max(maximumFractionDigits, 0), 6)
+        let minDigits = max(minimumFractionDigits, 0)
+        let maxDigits = min(max(maximumFractionDigits, 0), 6)
+        let key = minDigits * 100 + maxDigits
+
+        numberFormatterLock.lock()
+        defer { numberFormatterLock.unlock() }
+
+        let formatter: NumberFormatter
+        if let cached = numberFormatterCache[key] {
+            formatter = cached
+        } else {
+            formatter = NumberFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.numberStyle = .decimal
+            formatter.usesGroupingSeparator = false
+            formatter.minimumFractionDigits = minDigits
+            formatter.maximumFractionDigits = maxDigits
+            numberFormatterCache[key] = formatter
+        }
         return formatter.string(from: NSNumber(value: value)) ?? "Unavailable"
     }
 }

@@ -178,6 +178,23 @@ struct MenuBarLabelImage: View {
         }
     }
 
+    /// Keyed by `kind` rather than a single slot: every enabled metric renders its own item
+    /// concurrently, and each has its own independent "did the pixels actually change" answer.
+    @MainActor
+    private static var renderCache: [MetricKind: (key: RenderCacheKey, image: NSImage)] = [:]
+
+    private struct RenderCacheKey: Equatable {
+        let displayMode: MenuBarDisplayMode
+        let value: String
+        let fraction: Double?
+        let tint: Color?
+    }
+
+    /// Rasterizing through `ImageRenderer` costs real time — it's a full mini SwiftUI render
+    /// pass, not a cheap draw call — and storage/battery/temperature only change once every 30s,
+    /// so most ticks re-rasterize pixels identical to last time. Skipping that when nothing this
+    /// image depends on has changed is a straight win with no visual cost (performance
+    /// review P7).
     @MainActor
     static func renderedImage(
         kind: MetricKind,
@@ -186,6 +203,11 @@ struct MenuBarLabelImage: View {
         fraction: Double?,
         tint: Color?
     ) -> NSImage? {
+        let key = RenderCacheKey(displayMode: displayMode, value: value, fraction: fraction, tint: tint)
+        if let cached = renderCache[kind], cached.key == key {
+            return cached.image
+        }
+
         let content = MenuBarLabelContent(
             kind: kind,
             displayMode: displayMode,
@@ -199,6 +221,7 @@ struct MenuBarLabelImage: View {
         renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
         guard let image = renderer.nsImage else { return nil }
         image.isTemplate = tint == nil
+        renderCache[kind] = (key, image)
         return image
     }
 }

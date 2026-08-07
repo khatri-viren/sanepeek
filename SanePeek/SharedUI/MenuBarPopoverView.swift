@@ -22,6 +22,14 @@ struct MenuBarPopoverView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.dismiss) private var dismiss
     @State private var selectedMetric: MetricKind
+    /// Gates the row list + chart below on whether this popup is actually on screen.
+    /// `MenuBarExtra(.window)` keeps every enabled item's popup content view tree live even
+    /// while closed, so reading `viewModel.card(for:)` unconditionally made this rebuild — full
+    /// history charts included — on every metrics tick regardless of whether the popup was ever
+    /// opened (performance review P0). Local state rather than reusing `appState`'s tracking:
+    /// this view should stop depending on the view model the moment it's closed, without waiting
+    /// on a round-trip through `AppState`.
+    @State private var isOpen = false
 
     /// Mirrors the dashboard's visual grouping (hero cards first, then the generic ones) so
     /// the popup reads consistently with the full dashboard rather than declaration order.
@@ -70,22 +78,26 @@ struct MenuBarPopoverView: View {
                 .accessibilityLabel("Settings")
             }
 
-            HStack(alignment: .top, spacing: 16) {
-                rowList
-                    .frame(width: Self.rowListWidth)
+            if isOpen {
+                HStack(alignment: .top, spacing: 16) {
+                    rowList
+                        .frame(width: Self.rowListWidth)
 
-                if let selectedCard = viewModel.card(for: selectedMetric) {
-                    PopoverMetricChartView(
-                        model: selectedCard,
-                        viewModel: viewModel,
-                        formatter: appState.settingsStore.formatter
-                    )
-                    .frame(maxWidth: .infinity)
+                    if let selectedCard = viewModel.card(for: selectedMetric) {
+                        PopoverMetricChartView(
+                            model: selectedCard,
+                            viewModel: viewModel,
+                            formatter: appState.settingsStore.formatter
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
                 }
+                // Keeps the popup's height steady as the selection moves between metrics with
+                // and without a legend row, instead of resizing under the pointer.
+                .frame(height: 260)
+            } else {
+                Color.clear.frame(height: 260)
             }
-            // Keeps the popup's height steady as the selection moves between metrics with
-            // and without a legend row, instead of resizing under the pointer.
-            .frame(height: 260)
         }
         .padding(16)
         .frame(width: 560)
@@ -95,9 +107,13 @@ struct MenuBarPopoverView: View {
             // was picked last time — reset it, or clicking Memory would reopen on whichever
             // tab the previous session ended on.
             selectedMetric = kind
+            isOpen = true
             appState.handlePopupVisibilityChange(isVisible: true, kind: kind)
         }
-        .onDisappear { appState.handlePopupVisibilityChange(isVisible: false, kind: kind) }
+        .onDisappear {
+            isOpen = false
+            appState.handlePopupVisibilityChange(isVisible: false, kind: kind)
+        }
         // macOS leaves an already-open popup on screen when a *different* menu bar item is
         // clicked, so each popup closes itself when another one takes over. Dismissing through
         // the environment action rather than closing the `NSWindow` directly keeps

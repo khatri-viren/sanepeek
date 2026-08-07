@@ -91,12 +91,36 @@ nonisolated protocol NetworkPrimaryInterfaceSource: Sendable {
 /// — same rationale as `NWPathConnectivitySource` below.
 final class SCDynamicStorePrimaryInterfaceSource: NetworkPrimaryInterfaceSource, @unchecked Sendable {
     private let store: SCDynamicStore?
+    private let lock = NSLock()
+    private var cachedName: String?
+    private var lastRefresh: TimeInterval = -.infinity
+
+    /// The primary interface changes only when the network configuration itself does — joining
+    /// Wi-Fi, plugging in Ethernet, a VPN going up or down — so re-deriving it via Mach IPC into
+    /// `configd` on every metrics tick (as often as once a second) woke a second process for a
+    /// value that is almost always unchanged. Refreshing at most this often bounds that cost
+    /// without needing full `SCDynamicStoreSetNotificationKeys` run-loop plumbing for a value
+    /// this rarely changes (performance review P4).
+    private static let refreshInterval: TimeInterval = 30
 
     init() {
         store = SCDynamicStoreCreate(nil, "com.sanepeek.app" as CFString, nil, nil)
     }
 
     var primaryInterfaceName: String? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastRefresh >= Self.refreshInterval else {
+            return cachedName
+        }
+        lastRefresh = now
+        cachedName = Self.readPrimaryInterfaceName(from: store)
+        return cachedName
+    }
+
+    private static func readPrimaryInterfaceName(from store: SCDynamicStore?) -> String? {
         guard let store,
               let value = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any],
               let name = value["PrimaryInterface"] as? String,

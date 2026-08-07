@@ -35,23 +35,42 @@ nonisolated struct MetricCardFlowLayout: Layout {
     var maxCardWidth: CGFloat = 380
     var spacing: CGFloat = MetricSpacing.gridSpacing
 
-    private struct Row {
+    struct Row {
         var placements: [(index: Int, width: CGFloat)] = []
         var height: CGFloat = 0
     }
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    /// `sizeThatFits` and `placeSubviews` run back-to-back in the same layout pass with the same
+    /// resolved width, so without a cache every subview's `sizeThatFits(_:)` — the expensive part
+    /// for chart-bearing cards — ran twice per pass. Caching the last computed rows against the
+    /// width they were computed for cuts that in half; `updateCache` resets it whenever the
+    /// subview set itself changes (a card appearing/disappearing), so a stale row layout is never
+    /// reused (performance review P8).
+    struct Cache {
+        var rows: [Row] = []
+        var width: CGFloat = -1
+    }
+
+    func makeCache(subviews: Subviews) -> Cache {
+        Cache()
+    }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        cache = Cache()
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let width = resolvedWidth(from: proposal)
-        let rows = rows(for: subviews, availableWidth: width)
+        let rows = rows(for: subviews, availableWidth: width, cache: &cache)
         let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, rows.count - 1))
         return CGSize(width: width, height: height)
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         let width = bounds.width > 0 ? bounds.width : resolvedWidth(from: proposal)
         var y = bounds.minY
 
-        for row in rows(for: subviews, availableWidth: width) {
+        for row in rows(for: subviews, availableWidth: width, cache: &cache) {
             var x = bounds.minX
             for placement in row.placements {
                 subviews[placement.index].place(
@@ -76,7 +95,18 @@ nonisolated struct MetricCardFlowLayout: Layout {
         return width
     }
 
-    private func rows(for subviews: Subviews, availableWidth: CGFloat) -> [Row] {
+    private func rows(for subviews: Subviews, availableWidth: CGFloat, cache: inout Cache) -> [Row] {
+        if cache.width == availableWidth, !cache.rows.isEmpty {
+            return cache.rows
+        }
+
+        let computed = computeRows(for: subviews, availableWidth: availableWidth)
+        cache.rows = computed
+        cache.width = availableWidth
+        return computed
+    }
+
+    private func computeRows(for subviews: Subviews, availableWidth: CGFloat) -> [Row] {
         let columns = max(1, Int((availableWidth + spacing) / (minCardWidth + spacing)))
         let columnWidth = max(
             0,

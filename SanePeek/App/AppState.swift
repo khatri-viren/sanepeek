@@ -138,12 +138,26 @@ final class AppState {
     /// `handlePopupVisibilityChange`).
     private(set) var frontmostPopupKind: MetricKind?
 
-    private var isDashboardVisible = false
+    /// Exposed read-only so `DashboardView` can gate its card content on it: the window is
+    /// pre-created (and its view tree kept live) at launch regardless of visibility, so without
+    /// this the whole card grid — Swift Charts included — re-renders on every tick even while
+    /// nobody can see it (performance review P0).
+    private(set) var isDashboardVisible = false
     /// A set rather than a `Bool`: two popups overlap briefly during a hand-off, since the
     /// incoming one appears before the outgoing one has finished dismissing.
     private var visiblePopupKinds: Set<MetricKind> = []
     private var visibleDashboardWindowIDs: Set<ObjectIdentifier> = []
     private var dashboardWindowObservers: [ObjectIdentifier: [NSObjectProtocol]] = [:]
+
+    /// True while the display is asleep or the session is locked — states in which nothing the
+    /// engine drives (menu bar items included; the lock screen doesn't show them) can be seen at
+    /// all, so polling is paused outright rather than merely narrowed (performance review P6).
+    private var isDisplayUnavailable = false
+    // `nonisolated(unsafe)`, matching `DashboardViewModel.consumeTask`: only ever mutated from
+    // MainActor code (`registerDisplayAvailabilityObservers`), but `deinit` is nonisolated and
+    // still needs to remove these observers.
+    @ObservationIgnored
+    private nonisolated(unsafe) var displayAvailabilityObservers: [NSObjectProtocol] = []
 
     init(dependencies: AppDependencies = .live) {
         self.dependencies = dependencies
@@ -157,8 +171,43 @@ final class AppState {
         if dependencies.metricsEngine != nil {
             settingsStore.onRefreshRateChange = { [weak self] _ in self?.recomputePollingState() }
             settingsStore.onMenuBarConfigChange = { [weak self] in self?.recomputePollingState() }
+            registerDisplayAvailabilityObservers()
             recomputePollingState()
         }
+    }
+
+    deinit {
+        displayAvailabilityObservers.forEach(NotificationCenter.default.removeObserver)
+        displayAvailabilityObservers.forEach(DistributedNotificationCenter.default().removeObserver)
+    }
+
+    /// Screen sleep is a workspace notification; screen lock has no public API and is
+    /// conventionally observed via these two well-established distributed notifications (long
+    /// used by menu bar utilities for exactly this purpose, despite being unlisted in
+    /// `NSWorkspace`'s API).
+    private func registerDisplayAvailabilityObservers() {
+        let center = NotificationCenter.default
+        let distributedCenter = DistributedNotificationCenter.default()
+
+        let sleep = center.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setDisplayUnavailable(true) }
+        }
+        let wake = center.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setDisplayUnavailable(false) }
+        }
+        let locked = distributedCenter.addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setDisplayUnavailable(true) }
+        }
+        let unlocked = distributedCenter.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.setDisplayUnavailable(false) }
+        }
+        displayAvailabilityObservers = [sleep, wake, locked, unlocked]
+    }
+
+    private func setDisplayUnavailable(_ unavailable: Bool) {
+        guard isDisplayUnavailable != unavailable else { return }
+        isDisplayUnavailable = unavailable
+        recomputePollingState()
     }
 
     /// `DashboardView` calls this once its own `NSWindow` resolves (via `WindowAccessor`),
@@ -251,7 +300,7 @@ final class AppState {
         let wantsFullCoverage = isDashboardVisible || !visiblePopupKinds.isEmpty
         let enabledMenuBarMetrics = Set(MetricKind.allCases.filter { settingsStore.menuBarConfig(for: $0).isEnabled })
         let activeMetrics = wantsFullCoverage ? Set(MetricKind.allCases) : enabledMenuBarMetrics
-        let shouldPoll = wantsFullCoverage || !enabledMenuBarMetrics.isEmpty
+        let shouldPoll = !isDisplayUnavailable && (wantsFullCoverage || !enabledMenuBarMetrics.isEmpty)
         let cadence = wantsFullCoverage ? settingsStore.cadencePolicy : Self.backgroundCadencePolicy
 
         Task {

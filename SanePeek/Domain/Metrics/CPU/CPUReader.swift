@@ -88,7 +88,21 @@ actor LiveCPUReader: CPUReader {
 }
 
 nonisolated struct MachCPUSystemAdapter: CPUSystemAdapter {
-    init() {}
+    /// Read once at init rather than on every `read(at:)` call: core counts and the chip's
+    /// brand string are fixed hardware facts that cannot change while the process is running,
+    /// so re-reading three `sysctlbyname` calls a tick — one of them a string allocation — was
+    /// pure waste (performance review P3).
+    private let hardware: CPUHardwareInfo
+
+    init() {
+        let logicalCoreCount = ProcessInfo.processInfo.processorCount
+        hardware = CPUHardwareInfo(
+            logicalCoreCount: logicalCoreCount > 0 ? logicalCoreCount : nil,
+            performanceCoreCount: Self.readSysctlInt32(named: "hw.perflevel0.logicalcpu"),
+            efficiencyCoreCount: Self.readSysctlInt32(named: "hw.perflevel1.logicalcpu"),
+            chipName: Self.readSysctlString(named: "machdep.cpu.brand_string")
+        )
+    }
 
     func read(at timestamp: MetricTimestamp) -> MetricResult<CPUSystemSample> {
         var processorCount: natural_t = 0
@@ -172,18 +186,10 @@ nonisolated struct MachCPUSystemAdapter: CPUSystemAdapter {
             return .failed(MetricFailure(kind: .invalidData))
         }
 
-        let logicalCoreCount = ProcessInfo.processInfo.processorCount
-        let hardware = CPUHardwareInfo(
-            logicalCoreCount: logicalCoreCount > 0 ? logicalCoreCount : nil,
-            performanceCoreCount: readSysctlInt32(named: "hw.perflevel0.logicalcpu"),
-            efficiencyCoreCount: readSysctlInt32(named: "hw.perflevel1.logicalcpu"),
-            chipName: readSysctlString(named: "machdep.cpu.brand_string")
-        )
-
         return .available(CPUSystemSample(counter: aggregateCounter, hardware: hardware))
     }
 
-    private func readSysctlInt32(named name: String) -> Int? {
+    private static func readSysctlInt32(named name: String) -> Int? {
         var value: Int32 = 0
         var size = MemoryLayout<Int32>.size
         let result = name.withCString {
@@ -196,7 +202,7 @@ nonisolated struct MachCPUSystemAdapter: CPUSystemAdapter {
         return Int(value)
     }
 
-    private func readSysctlString(named name: String) -> String? {
+    private static func readSysctlString(named name: String) -> String? {
         var size = 0
         guard name.withCString({ sysctlbyname($0, nil, &size, nil, 0) }) == 0, size > 0 else {
             return nil

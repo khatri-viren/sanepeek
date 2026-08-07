@@ -50,7 +50,14 @@ struct DashboardView: View {
                     description: Text("Metric cards will appear here as the monitoring engine comes online.")
                 )
                 Spacer(minLength: 0)
-            } else {
+            } else if appState.isDashboardVisible {
+                // Gated on visibility, not just `hasReceivedData`: `WindowGroup` pre-creates this
+                // window's view tree at launch and keeps it live even while hidden under
+                // `LSUIElement`, so reading `viewModel`'s card properties unconditionally here
+                // made every card — Swift Charts included — rebuild on every metrics tick with
+                // nobody watching. Swapping in a plain `Color.clear` while hidden means this
+                // branch, and therefore these reads, are simply never evaluated until the window
+                // is actually key again (performance review P0).
                 ScrollView {
                     // The CPU and Memory cards are twice as wide as their
                     // siblings, so they reflow with them rather than sitting in
@@ -83,6 +90,8 @@ struct DashboardView: View {
                     }
                     .padding(.bottom, 4)
                 }
+            } else {
+                Color.clear
             }
         }
         .padding(24)
