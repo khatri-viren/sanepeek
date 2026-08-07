@@ -7,7 +7,7 @@ nonisolated enum MenuBarDisplayMode: String, Codable, CaseIterable, Equatable, S
     var displayName: String {
         switch self {
         case .number: "Number"
-        case .bar: "Bar chart"
+        case .bar: "Bar"
         }
     }
 }

@@ -346,4 +346,91 @@ struct MetricCardMappingTests {
         #expect(detail?.cpuText == "82 \u{00B0}C")
         #expect(detail?.gpuText == "74 \u{00B0}C")
     }
+
+    // MARK: - levelFraction
+    //
+    // Drives the menu bar item's battery-style bar. Unlike `sparklineValues`, every metric
+    // has to supply one — storage and battery included — or those items would render an
+    // empty bar forever.
+
+    @Test("Metrics with a natural 0...1 scale fill against it directly")
+    func levelFractionUsesTheMetricsOwnScale() {
+        let cpu = MetricCardMapping.cpuCard(
+            CPUSnapshot(timestamp: Self.timestamp, utilization: 0.42),
+            history: []
+        )
+        let memory = MetricCardMapping.memoryCard(
+            MemorySnapshot(timestamp: Self.timestamp, usedBytes: 6_000_000_000, availableBytes: 2_000_000_000),
+            history: []
+        )
+        let storage = MetricCardMapping.storageCard(
+            StorageSnapshot(
+                timestamp: Self.timestamp,
+                usedBytes: 250_000_000_000,
+                availableBytes: 750_000_000_000,
+                totalBytes: 1_000_000_000_000
+            )
+        )
+        let battery = MetricCardMapping.batteryCard(
+            BatterySnapshot(timestamp: Self.timestamp, percentage: 0.8, chargingState: .unplugged)
+        )
+        let gpu = MetricCardMapping.gpuCard(
+            GPUSnapshot(timestamp: Self.timestamp, utilization: 0.25),
+            history: []
+        )
+
+        #expect(cpu.levelFraction == 0.42)
+        #expect(memory.levelFraction == 0.75)
+        #expect(storage.levelFraction == 0.25)
+        #expect(battery.levelFraction == 0.8)
+        #expect(gpu?.levelFraction == 0.25)
+    }
+
+    @Test("Temperature fills against the gauge's displayed range and clamps past either end")
+    func temperatureLevelFractionClampsToTheGaugeRange() {
+        func level(cpuCelsius: Double) -> Double? {
+            MetricCardMapping.temperatureCard(
+                TemperatureSnapshot(timestamp: Self.timestamp, cpuCelsius: cpuCelsius, gpuCelsius: nil),
+                history: []
+            ).levelFraction
+        }
+
+        // The gauge sweeps 30...105 °C, so 67.5 is its midpoint.
+        #expect(level(cpuCelsius: 67.5) == 0.5)
+        #expect(level(cpuCelsius: 10) == 0)
+        #expect(level(cpuCelsius: 200) == 1)
+    }
+
+    @Test("Network has no ceiling, so it fills against the trailing window's own peak")
+    func networkLevelFractionIsSelfScaled() {
+        func level(downloadBytesPerSecond: Double, history: [Double]) -> Double? {
+            MetricCardMapping.networkCard(
+                NetworkSnapshot(
+                    timestamp: Self.timestamp,
+                    downloadBytesPerSecond: downloadBytesPerSecond,
+                    uploadBytesPerSecond: 0,
+                    connectivity: .connected,
+                    interfaceNames: ["en0"]
+                ),
+                history: history
+            ).levelFraction
+        }
+
+        #expect(level(downloadBytesPerSecond: 500, history: [100, 1_000, 250]) == 0.5)
+        // At the window's peak the bar is full — "busiest this minute", not "saturated".
+        #expect(level(downloadBytesPerSecond: 1_000, history: [100, 1_000]) == 1)
+        // A current reading above everything in the window still can't exceed a full bar.
+        #expect(level(downloadBytesPerSecond: 5_000, history: [100, 1_000]) == 1)
+        // A fully idle window would otherwise divide by zero.
+        #expect(level(downloadBytesPerSecond: 0, history: [0, 0]) == 0)
+    }
+
+    @Test("An unavailable metric has no level at all, so its bar renders empty rather than full")
+    func unavailableCardHasNoLevelFraction() {
+        let cpu = MetricCardMapping.cpuCard(nil, history: [])
+        let temperature = MetricCardMapping.temperatureCard(nil, history: [])
+
+        #expect(cpu.levelFraction == nil)
+        #expect(temperature.levelFraction == nil)
+    }
 }

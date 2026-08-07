@@ -20,6 +20,11 @@ nonisolated enum MetricCardMapping {
     private static let batteryCriticalFraction = 0.10
     private static let temperatureWarningCelsius = 80.0
     private static let temperatureCriticalCelsius = 95.0
+    /// Temperature has no natural 0...1 scale, so its `levelFraction` fills against the
+    /// same displayed range `TemperatureGaugeView`'s dial sweeps, keeping the menu bar bar
+    /// and the dashboard gauge in agreement about what "full" means.
+    private static let temperatureScaleMinCelsius = 30.0
+    private static let temperatureScaleMaxCelsius = 105.0
 
     static func cpuCard(
         _ snapshot: CPUSnapshot?,
@@ -50,6 +55,7 @@ nonisolated enum MetricCardMapping {
             status: status,
             unavailableMessage: nil,
             sparklineValues: history,
+            levelFraction: snapshot.utilization,
             usageFraction: nil,
             accessibilityLabel: title,
             accessibilityValue: accessibilityValue(primary: primary, secondary: secondary, status: status)
@@ -123,6 +129,7 @@ nonisolated enum MetricCardMapping {
             status: status,
             unavailableMessage: nil,
             sparklineValues: history,
+            levelFraction: usedFraction,
             usageFraction: nil,
             accessibilityLabel: title,
             accessibilityValue: accessibilityValue(primary: primary, secondary: secondary, status: status)
@@ -204,6 +211,7 @@ nonisolated enum MetricCardMapping {
             status: status,
             unavailableMessage: nil,
             sparklineValues: [],
+            levelFraction: usageFraction,
             usageFraction: usageFraction,
             accessibilityLabel: title,
             accessibilityValue: accessibilityValue(primary: primary, secondary: secondary, status: status)
@@ -223,6 +231,17 @@ nonisolated enum MetricCardMapping {
         let primary = throughputText(snapshot.downloadBytesPerSecond, formatter: formatter)
         let secondary = snapshot.uploadBytesPerSecond.map { "\u{2191} \(throughputText($0, formatter: formatter))" }
 
+        // Network is the one metric with no absolute ceiling to fill against — link
+        // capacity isn't knowable — so its level is scaled to the trailing window's own
+        // peak, the same self-scaling the menu bar's chart used. A full bar therefore
+        // means "the busiest this minute has been", not "saturated".
+        let levelFraction: Double? = {
+            guard let current = snapshot.downloadBytesPerSecond, current.isFinite, current >= 0 else { return nil }
+            let peak = max(history.max() ?? 0, current)
+            guard peak > 0 else { return 0 }
+            return current / peak
+        }()
+
         return MetricCardModel(
             id: .network,
             title: title,
@@ -233,6 +252,7 @@ nonisolated enum MetricCardMapping {
             status: nil,
             unavailableMessage: nil,
             sparklineValues: history,
+            levelFraction: levelFraction,
             usageFraction: nil,
             accessibilityLabel: title,
             accessibilityValue: accessibilityValue(primary: "Download \(primary)", secondary: secondary, status: nil)
@@ -286,6 +306,7 @@ nonisolated enum MetricCardMapping {
             status: status,
             unavailableMessage: nil,
             sparklineValues: [],
+            levelFraction: snapshot.percentage,
             usageFraction: nil,
             accessibilityLabel: title,
             accessibilityValue: accessibilityValue(primary: primary, secondary: secondary, status: status)
@@ -316,6 +337,7 @@ nonisolated enum MetricCardMapping {
             status: nil,
             unavailableMessage: nil,
             sparklineValues: history,
+            levelFraction: utilization,
             usageFraction: nil,
             accessibilityLabel: title,
             accessibilityValue: accessibilityValue(primary: primary, secondary: snapshot.name, status: nil)
@@ -355,6 +377,7 @@ nonisolated enum MetricCardMapping {
             status: status,
             unavailableMessage: nil,
             sparklineValues: history,
+            levelFraction: hottest.map(temperatureLevelFraction),
             usageFraction: nil,
             accessibilityLabel: title,
             accessibilityValue: accessibilityValue(primary: primary, secondary: secondary.isEmpty ? nil : secondary, status: status)
@@ -395,10 +418,18 @@ nonisolated enum MetricCardMapping {
             status: nil,
             unavailableMessage: message,
             sparklineValues: [],
+            levelFraction: nil,
             usageFraction: nil,
             accessibilityLabel: title,
             accessibilityValue: message
         )
+    }
+
+    /// Clamped to the gauge's displayed range so a reading past either end pins the bar
+    /// full/empty rather than overflowing it.
+    private static func temperatureLevelFraction(_ celsius: Double) -> Double {
+        let clamped = min(max(celsius, temperatureScaleMinCelsius), temperatureScaleMaxCelsius)
+        return (clamped - temperatureScaleMinCelsius) / (temperatureScaleMaxCelsius - temperatureScaleMinCelsius)
     }
 
     private static func accessibilityValue(primary: String, secondary: String?, status: MetricCardStatus?) -> String {
