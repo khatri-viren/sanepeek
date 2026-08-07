@@ -342,6 +342,92 @@ struct MetricsEngineTests {
         #expect(await cpuReader.callCount == callCountBeforeStop)
     }
 
+    @Test("setActiveMetrics restricts the fast loop to reading only active metrics")
+    func setActiveMetricsRestrictsFastLoopReads() async {
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let cpuReader = QueueingReader<CPUSnapshot>(
+            results: [.available(CPUSnapshot(timestamp: .zero, utilization: 0.4))]
+        )
+        let memoryReader = QueueingReader<MemorySnapshot>(
+            results: [.available(MemorySnapshot(timestamp: .zero, usedBytes: 1))]
+        )
+        let networkReader = QueueingReader<NetworkSnapshot>(
+            results: [.available(NetworkSnapshot(timestamp: .zero, downloadBytesPerSecond: 1))]
+        )
+        let gpuReader = QueueingReader<GPUSnapshot>(
+            results: [.available(GPUSnapshot(timestamp: .zero, utilization: 0.1))]
+        )
+        let engine = MetricsEngine(
+            cpuReader: cpuReader,
+            memoryReader: memoryReader,
+            storageReader: QueueingReader(results: [.available(StorageSnapshot(timestamp: .zero, usedBytes: 1))]),
+            networkReader: networkReader,
+            batteryReader: QueueingReader(results: [.available(BatterySnapshot(timestamp: .zero, percentage: 1))]),
+            gpuReader: gpuReader,
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.setActiveMetrics([.cpu, .memory])
+        await engine.start()
+        await fastScheduler.waitUntilIntervalsCount(1)
+
+        #expect(await cpuReader.callCount == 1)
+        #expect(await memoryReader.callCount == 1)
+        #expect(await networkReader.callCount == 0)
+        #expect(await gpuReader.callCount == 0)
+
+        let snapshot = await engine.currentSnapshot()
+        #expect(snapshot.cpu?.utilization == 0.4)
+        #expect(snapshot.network == nil)
+        #expect(snapshot.gpu == nil)
+
+        await engine.stop()
+    }
+
+    @Test("setActiveMetrics restricts the slow loop to reading only active metrics")
+    func setActiveMetricsRestrictsSlowLoopReads() async {
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let storageReader = QueueingReader<StorageSnapshot>(
+            results: [.available(StorageSnapshot(timestamp: .zero, usedBytes: 1))]
+        )
+        let batteryReader = QueueingReader<BatterySnapshot>(
+            results: [.available(BatterySnapshot(timestamp: .zero, percentage: 1))]
+        )
+        let temperatureReader = QueueingReader<TemperatureSnapshot>(
+            results: [.available(TemperatureSnapshot(timestamp: .zero, cpuCelsius: 40, gpuCelsius: 38))]
+        )
+        let engine = MetricsEngine(
+            cpuReader: QueueingReader(results: [.available(CPUSnapshot(timestamp: .zero, utilization: 0.1))]),
+            memoryReader: QueueingReader(results: [.available(MemorySnapshot(timestamp: .zero, usedBytes: 1))]),
+            storageReader: storageReader,
+            networkReader: QueueingReader(results: [.available(NetworkSnapshot(timestamp: .zero, downloadBytesPerSecond: 1))]),
+            batteryReader: batteryReader,
+            gpuReader: QueueingReader(results: [.available(GPUSnapshot(timestamp: .zero, utilization: 0.1))]),
+            temperatureReader: temperatureReader,
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.setActiveMetrics([.storage])
+        await engine.start()
+        await slowScheduler.waitUntilIntervalsCount(1)
+
+        #expect(await storageReader.callCount == 1)
+        #expect(await batteryReader.callCount == 0)
+        #expect(await temperatureReader.callCount == 0)
+
+        let snapshot = await engine.currentSnapshot()
+        #expect(snapshot.storage != nil)
+        #expect(snapshot.battery == nil)
+        #expect(snapshot.temperature == nil)
+        #expect(await engine.history(for: .temperatureHottestCelsius).isEmpty)
+
+        await engine.stop()
+    }
+
     @Test("MetricsEngine samples all six metrics within a reasonable time budget")
     func samplingCostStaysWithinBudget() async {
         let fastScheduler = StepScheduler()

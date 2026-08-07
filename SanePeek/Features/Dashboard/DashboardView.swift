@@ -9,15 +9,11 @@ struct DashboardView: View {
     @Environment(\.openSettings) private var openSettings
 
     let appState: AppState
-    @State private var viewModel: DashboardViewModel
+
+    private var viewModel: DashboardViewModel { appState.dashboardViewModel }
 
     init(appState: AppState) {
         self.appState = appState
-        let settingsStore = appState.settingsStore
-        _viewModel = State(initialValue: DashboardViewModel(
-            feed: appState.dependencies.makeDashboardTickFeed(),
-            formatterProvider: { settingsStore.formatter }
-        ))
     }
 
     var body: some View {

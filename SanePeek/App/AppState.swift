@@ -115,11 +115,19 @@ struct AppDependencies: Sendable {
 final class AppState {
     let dependencies: AppDependencies
     let settingsStore: SettingsStore
+    /// The single shared ticking view model. `MetricsEngine.snapshots()` only supports one
+    /// subscriber, so every consumer (dashboard, and eventually the popup/menu bar) reads this
+    /// instance instead of constructing its own.
+    let dashboardViewModel: DashboardViewModel
 
     init(dependencies: AppDependencies = .live) {
         self.dependencies = dependencies
         let settingsStore = dependencies.makeSettingsStore()
         self.settingsStore = settingsStore
+        self.dashboardViewModel = DashboardViewModel(
+            feed: dependencies.makeDashboardTickFeed(),
+            formatterProvider: { settingsStore.formatter }
+        )
 
         if let metricsEngine = dependencies.metricsEngine {
             settingsStore.onRefreshRateChange = { refreshRate in
@@ -135,6 +143,9 @@ final class AppState {
         guard let metricsEngine = dependencies.metricsEngine else { return }
         Task {
             if isVisible {
+                // No menu bar UI yet to narrow this further, so the dashboard being open
+                // always polls every metric — matching today's behavior exactly.
+                await metricsEngine.setActiveMetrics(Set(MetricKind.allCases))
                 await metricsEngine.resume()
             } else {
                 await metricsEngine.pause()

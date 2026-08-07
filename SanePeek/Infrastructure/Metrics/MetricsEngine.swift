@@ -31,6 +31,9 @@ actor MetricsEngine {
 
     private var cadencePolicy: CadencePolicy
     private var history: [MetricHistoryKind: MetricRingBuffer<Double>]
+    /// Metrics currently read by the polling loops. Defaults to all seven so behavior is
+    /// unchanged until a caller opts into selective polling via `setActiveMetrics(_:)`.
+    private var activeMetrics: Set<MetricKind> = Set(MetricKind.allCases)
 
     private var fastTask: Task<Void, Never>?
     private var slowTask: Task<Void, Never>?
@@ -146,6 +149,13 @@ actor MetricsEngine {
         fastTask = Task { [weak self] in await self?.runFastLoop() }
     }
 
+    /// Restricts the polling loops to reading only these metrics; the rest keep publishing
+    /// their last-known-good value unchanged instead of being read. Callers that want polling
+    /// stopped entirely should use `pause()` instead of passing an empty set.
+    func setActiveMetrics(_ metrics: Set<MetricKind>) {
+        activeMetrics = metrics
+    }
+
     private func cancelTasks() {
         fastTask?.cancel()
         slowTask?.cancel()
@@ -183,10 +193,10 @@ actor MetricsEngine {
             let tick = clock.now()
             let cycleState = signposter.beginInterval("PollingCycle.fast")
 
-            async let cpuResult = readCPU(at: tick)
-            async let memoryResult = readMemory(at: tick)
-            async let networkResult = readNetwork(at: tick)
-            async let gpuResult = readGPU(at: tick)
+            async let cpuResult = readIfActive(.cpu) { await self.readCPU(at: tick) }
+            async let memoryResult = readIfActive(.memory) { await self.readMemory(at: tick) }
+            async let networkResult = readIfActive(.network) { await self.readNetwork(at: tick) }
+            async let gpuResult = readIfActive(.gpu) { await self.readGPU(at: tick) }
 
             updateFastMetrics(
                 cpu: await cpuResult,
@@ -211,9 +221,9 @@ actor MetricsEngine {
             let tick = clock.now()
             let cycleState = signposter.beginInterval("PollingCycle.slow")
 
-            async let storageResult = readStorage(at: tick)
-            async let batteryResult = readBattery(at: tick)
-            async let temperatureResult = readTemperature(at: tick)
+            async let storageResult = readIfActive(.storage) { await self.readStorage(at: tick) }
+            async let batteryResult = readIfActive(.battery) { await self.readBattery(at: tick) }
+            async let temperatureResult = readIfActive(.temperature) { await self.readTemperature(at: tick) }
 
             updateSlowMetrics(
                 storage: await storageResult,
@@ -230,6 +240,15 @@ actor MetricsEngine {
                 return
             }
         }
+    }
+
+    // MARK: - Selective polling
+
+    /// Skips `read` for a metric outside `activeMetrics`, returning `nil` so the caller leaves
+    /// that metric's last-known-good published value untouched instead of overwriting it.
+    private func readIfActive<T>(_ metric: MetricKind, _ read: () async -> MetricResult<T>) async -> MetricResult<T>? {
+        guard activeMetrics.contains(metric) else { return nil }
+        return await read()
     }
 
     // MARK: - Reader cost signposts
@@ -279,65 +298,77 @@ actor MetricsEngine {
     // MARK: - Merge and history
 
     private func updateFastMetrics(
-        cpu cpuResult: MetricResult<CPUSnapshot>,
-        memory memoryResult: MetricResult<MemorySnapshot>,
-        network networkResult: MetricResult<NetworkSnapshot>,
-        gpu gpuResult: MetricResult<GPUSnapshot>,
+        cpu cpuResult: MetricResult<CPUSnapshot>?,
+        memory memoryResult: MetricResult<MemorySnapshot>?,
+        network networkResult: MetricResult<NetworkSnapshot>?,
+        gpu gpuResult: MetricResult<GPUSnapshot>?,
         at tick: MetricTimestamp
     ) {
-        publishedCPU = mergedCPU(cpuResult, at: tick)
-        publishedMemory = mergedMemory(memoryResult, at: tick)
-        publishedNetwork = mergedNetwork(networkResult, at: tick)
-        publishedGPU = mergedGPU(gpuResult, at: tick)
-
-        if case .available = cpuResult, let utilization = publishedCPU?.utilization {
-            history[.cpuUtilization]?.append(MetricSample(timestamp: tick, value: utilization))
-        }
-        if case .available = cpuResult, let userUtilization = publishedCPU?.userUtilization {
-            history[.cpuUserUtilization]?.append(MetricSample(timestamp: tick, value: userUtilization))
-        }
-        if case .available = cpuResult, let systemUtilization = publishedCPU?.systemUtilization {
-            history[.cpuSystemUtilization]?.append(MetricSample(timestamp: tick, value: systemUtilization))
-        }
-        if case .available = memoryResult, let usedBytes = publishedMemory?.usedBytes {
-            history[.memoryUsedBytes]?.append(MetricSample(timestamp: tick, value: Double(usedBytes)))
-        }
-        if case .available = memoryResult, let appUtilization = publishedMemory?.appUtilization {
-            history[.memoryAppUtilization]?.append(MetricSample(timestamp: tick, value: appUtilization))
-        }
-        if case .available = memoryResult, let wiredUtilization = publishedMemory?.wiredUtilization {
-            history[.memoryWiredUtilization]?.append(MetricSample(timestamp: tick, value: wiredUtilization))
-        }
-        if case .available = memoryResult, let compressedUtilization = publishedMemory?.compressedUtilization {
-            history[.memoryCompressedUtilization]?.append(MetricSample(timestamp: tick, value: compressedUtilization))
-        }
-        if case .available = networkResult {
-            if let download = publishedNetwork?.downloadBytesPerSecond {
-                history[.networkDownloadBytesPerSecond]?.append(MetricSample(timestamp: tick, value: download))
+        if let cpuResult {
+            publishedCPU = mergedCPU(cpuResult, at: tick)
+            if case .available = cpuResult, let utilization = publishedCPU?.utilization {
+                history[.cpuUtilization]?.append(MetricSample(timestamp: tick, value: utilization))
             }
-            if let upload = publishedNetwork?.uploadBytesPerSecond {
-                history[.networkUploadBytesPerSecond]?.append(MetricSample(timestamp: tick, value: upload))
+            if case .available = cpuResult, let userUtilization = publishedCPU?.userUtilization {
+                history[.cpuUserUtilization]?.append(MetricSample(timestamp: tick, value: userUtilization))
+            }
+            if case .available = cpuResult, let systemUtilization = publishedCPU?.systemUtilization {
+                history[.cpuSystemUtilization]?.append(MetricSample(timestamp: tick, value: systemUtilization))
             }
         }
-        if case .available = gpuResult, let utilization = publishedGPU?.utilization {
-            history[.gpuUtilization]?.append(MetricSample(timestamp: tick, value: utilization))
+        if let memoryResult {
+            publishedMemory = mergedMemory(memoryResult, at: tick)
+            if case .available = memoryResult, let usedBytes = publishedMemory?.usedBytes {
+                history[.memoryUsedBytes]?.append(MetricSample(timestamp: tick, value: Double(usedBytes)))
+            }
+            if case .available = memoryResult, let appUtilization = publishedMemory?.appUtilization {
+                history[.memoryAppUtilization]?.append(MetricSample(timestamp: tick, value: appUtilization))
+            }
+            if case .available = memoryResult, let wiredUtilization = publishedMemory?.wiredUtilization {
+                history[.memoryWiredUtilization]?.append(MetricSample(timestamp: tick, value: wiredUtilization))
+            }
+            if case .available = memoryResult, let compressedUtilization = publishedMemory?.compressedUtilization {
+                history[.memoryCompressedUtilization]?.append(MetricSample(timestamp: tick, value: compressedUtilization))
+            }
+        }
+        if let networkResult {
+            publishedNetwork = mergedNetwork(networkResult, at: tick)
+            if case .available = networkResult {
+                if let download = publishedNetwork?.downloadBytesPerSecond {
+                    history[.networkDownloadBytesPerSecond]?.append(MetricSample(timestamp: tick, value: download))
+                }
+                if let upload = publishedNetwork?.uploadBytesPerSecond {
+                    history[.networkUploadBytesPerSecond]?.append(MetricSample(timestamp: tick, value: upload))
+                }
+            }
+        }
+        if let gpuResult {
+            publishedGPU = mergedGPU(gpuResult, at: tick)
+            if case .available = gpuResult, let utilization = publishedGPU?.utilization {
+                history[.gpuUtilization]?.append(MetricSample(timestamp: tick, value: utilization))
+            }
         }
     }
 
     private func updateSlowMetrics(
-        storage storageResult: MetricResult<StorageSnapshot>,
-        battery batteryResult: MetricResult<BatterySnapshot>,
-        temperature temperatureResult: MetricResult<TemperatureSnapshot>,
+        storage storageResult: MetricResult<StorageSnapshot>?,
+        battery batteryResult: MetricResult<BatterySnapshot>?,
+        temperature temperatureResult: MetricResult<TemperatureSnapshot>?,
         at tick: MetricTimestamp
     ) {
-        publishedStorage = mergedStorage(storageResult, at: tick)
-        publishedBattery = mergedBattery(batteryResult, at: tick)
-        publishedTemperature = mergedTemperature(temperatureResult, at: tick)
-
-        if case .available = temperatureResult {
-            let hottest = [publishedTemperature?.cpuCelsius, publishedTemperature?.gpuCelsius].compactMap { $0 }.max()
-            if let hottest {
-                history[.temperatureHottestCelsius]?.append(MetricSample(timestamp: tick, value: hottest))
+        if let storageResult {
+            publishedStorage = mergedStorage(storageResult, at: tick)
+        }
+        if let batteryResult {
+            publishedBattery = mergedBattery(batteryResult, at: tick)
+        }
+        if let temperatureResult {
+            publishedTemperature = mergedTemperature(temperatureResult, at: tick)
+            if case .available = temperatureResult {
+                let hottest = [publishedTemperature?.cpuCelsius, publishedTemperature?.gpuCelsius].compactMap { $0 }.max()
+                if let hottest {
+                    history[.temperatureHottestCelsius]?.append(MetricSample(timestamp: tick, value: hottest))
+                }
             }
         }
     }
