@@ -29,11 +29,11 @@ nonisolated enum MetricPalette {
     /// Second tone in the CPU card's user/system breakdown; a shade of `cpu`
     /// rather than a new hue, so the pair still reads as one metric.
     static let cpuSystem = Color.blue.opacity(0.5)
-    static let memory = Color.purple
+    static let memory = Color.blue
     /// Wired/Compressed tones in the Memory card's App/Wired/Compressed breakdown;
     /// shades of `memory` rather than new hues, matching the `cpu`/`cpuSystem` pattern.
-    static let memoryWired = Color.purple.opacity(0.6)
-    static let memoryCompressed = Color.purple.opacity(0.35)
+    static let memoryWired = Color.blue.opacity(0.6)
+    static let memoryCompressed = Color.blue.opacity(0.35)
     static let storage = Color.gray
     static let network = Color.cyan
     /// Network's upload-direction data color. Shares `warning`'s hue but is a
