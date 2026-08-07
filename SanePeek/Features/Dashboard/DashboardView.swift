@@ -88,6 +88,8 @@ struct DashboardView: View {
         .dynamicTypeSize(.large ... .xxxLarge)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("dashboard.root")
+        .onAppear { appState.handleDashboardVisibilityChange(isVisible: true) }
+        .onDisappear { appState.handleDashboardVisibilityChange(isVisible: false) }
     }
 
     @ViewBuilder

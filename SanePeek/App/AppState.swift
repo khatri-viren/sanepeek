@@ -11,6 +11,12 @@ enum AppRuntime: String, Equatable, Sendable {
     case preview
 }
 
+/// Identifiers for `WindowGroup` scenes, shared between `SanePeekApp` (which declares them)
+/// and anything that needs to `openWindow(id:)` them (the menu bar popup's "Open Dashboard").
+nonisolated enum WindowID {
+    static let dashboard = "dashboard"
+}
+
 /// The composition boundary for application-wide dependencies.
 ///
 /// Keeping the boundary in place lets previews and tests avoid global
@@ -116,9 +122,17 @@ final class AppState {
     let dependencies: AppDependencies
     let settingsStore: SettingsStore
     /// The single shared ticking view model. `MetricsEngine.snapshots()` only supports one
-    /// subscriber, so every consumer (dashboard, and eventually the popup/menu bar) reads this
+    /// subscriber, so every consumer (dashboard, popup, and menu bar items) reads this
     /// instance instead of constructing its own.
     let dashboardViewModel: DashboardViewModel
+
+    /// Cadence used while only menu bar items are visible (no popup/dashboard open) —
+    /// deliberately slower than the user's foreground refresh-rate setting, to bound the
+    /// always-on idle cost of keeping menu bar items live (V1.1 plan 3g).
+    private static let backgroundCadencePolicy = CadencePolicy(refreshRate: .fiveSeconds)
+
+    private var isDashboardVisible = false
+    private var isPopupVisible = false
 
     init(dependencies: AppDependencies = .live) {
         self.dependencies = dependencies
@@ -129,27 +143,51 @@ final class AppState {
             formatterProvider: { settingsStore.formatter }
         )
 
-        if let metricsEngine = dependencies.metricsEngine {
-            settingsStore.onRefreshRateChange = { refreshRate in
-                Task { await metricsEngine.updateCadence(CadencePolicy(refreshRate: refreshRate)) }
-            }
-            Task { await metricsEngine.updateCadence(settingsStore.cadencePolicy) }
+        if dependencies.metricsEngine != nil {
+            settingsStore.onRefreshRateChange = { [weak self] _ in self?.recomputePollingState() }
+            settingsStore.onMenuBarConfigChange = { [weak self] in self?.recomputePollingState() }
+            recomputePollingState()
         }
     }
 
-    /// Wired to window/scene visibility so polling stops while the dashboard
-    /// isn't visible instead of running unnecessarily in the background.
-    func handlePollingVisibilityChange(isVisible: Bool) {
+    /// Wired to the dashboard window's own `onAppear`/`onDisappear` — the window being open
+    /// widens polling to every metric at the user's foreground refresh rate (3g), regardless
+    /// of which subset is enabled in the menu bar.
+    func handleDashboardVisibilityChange(isVisible: Bool) {
+        isDashboardVisible = isVisible
+        recomputePollingState()
+    }
+
+    /// Wired to the menu bar popup's `onAppear`/`onDisappear`. Opening the popup always widens
+    /// polling to every metric for as long as it's open — it's a full glance view, not scoped
+    /// to the menu bar's enabled subset (3c) — independent of whether the dashboard is open.
+    func handlePopupVisibilityChange(isVisible: Bool) {
+        isPopupVisible = isVisible
+        recomputePollingState()
+    }
+
+    /// The single place that decides what `MetricsEngine` should be doing, re-run on every
+    /// input that can change the answer: dashboard/popup visibility and menu bar config edits.
+    /// - Dashboard or popup open: poll every metric at the user's foreground refresh rate.
+    /// - Otherwise: poll exactly the menu bar's enabled subset (3h) at the slower background
+    ///   cadence (3g), or pause entirely (3e) if nothing is enabled.
+    private func recomputePollingState() {
         guard let metricsEngine = dependencies.metricsEngine else { return }
+
+        let wantsFullCoverage = isDashboardVisible || isPopupVisible
+        let enabledMenuBarMetrics = Set(MetricKind.allCases.filter { settingsStore.menuBarConfig(for: $0).isEnabled })
+        let activeMetrics = wantsFullCoverage ? Set(MetricKind.allCases) : enabledMenuBarMetrics
+        let shouldPoll = wantsFullCoverage || !enabledMenuBarMetrics.isEmpty
+        let cadence = wantsFullCoverage ? settingsStore.cadencePolicy : Self.backgroundCadencePolicy
+
         Task {
-            if isVisible {
-                // No menu bar UI yet to narrow this further, so the dashboard being open
-                // always polls every metric — matching today's behavior exactly.
-                await metricsEngine.setActiveMetrics(Set(MetricKind.allCases))
-                await metricsEngine.resume()
-            } else {
+            guard shouldPoll else {
                 await metricsEngine.pause()
+                return
             }
+            await metricsEngine.setActiveMetrics(activeMetrics)
+            await metricsEngine.updateCadence(cadence)
+            await metricsEngine.resume()
         }
     }
 }

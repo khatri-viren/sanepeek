@@ -86,4 +86,17 @@ final class DashboardViewModel {
         cards = next
         hasReceivedData = true
     }
+
+    /// Looks up the current card for any metric, regardless of whether it's one of the four
+    /// dedicated hero cards or one of the generic `cards` entries — used by the menu bar and
+    /// its popup, which address metrics by `MetricKind` rather than by dedicated property.
+    func card(for kind: MetricKind) -> MetricCardModel? {
+        switch kind {
+        case .cpu: cpuCard
+        case .memory: memoryCard
+        case .temperature: temperatureCard
+        case .network: networkCard
+        case .storage, .battery, .gpu: cards.first { $0.id == kind }
+        }
+    }
 }

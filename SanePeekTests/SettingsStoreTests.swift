@@ -37,6 +37,61 @@ struct SettingsStoreTests {
         #expect(store.temperatureUnit == .celsius)
     }
 
+    @Test("A fresh store's menu bar config only enables CPU, in number mode, out of the box")
+    @MainActor
+    func freshStoreUsesDocumentedMenuBarDefaults() {
+        let store = SettingsStore(defaults: Self.freshDefaults(), launchAtLoginService: FakeLaunchAtLoginService())
+
+        for kind in MetricKind.allCases {
+            let config = store.menuBarConfig(for: kind)
+            #expect(config.isEnabled == (kind == .cpu))
+            #expect(config.displayMode == .number)
+        }
+    }
+
+    @Test("Menu bar config changes persist across a new store instance over the same defaults suite")
+    @MainActor
+    func menuBarConfigPersistsAcrossInstances() {
+        let defaults = Self.freshDefaults()
+
+        let first = SettingsStore(defaults: defaults, launchAtLoginService: FakeLaunchAtLoginService())
+        first.setMenuBarConfig(MenuBarMetricConfig(isEnabled: true, displayMode: .bar), for: .memory)
+        first.setMenuBarConfig(MenuBarMetricConfig(isEnabled: false, displayMode: .number), for: .cpu)
+
+        let second = SettingsStore(defaults: defaults, launchAtLoginService: FakeLaunchAtLoginService())
+
+        #expect(second.menuBarConfig(for: .memory) == MenuBarMetricConfig(isEnabled: true, displayMode: .bar))
+        #expect(second.menuBarConfig(for: .cpu).isEnabled == false)
+    }
+
+    @Test("A menu bar config decoded without every MetricKind still gets defaulted entries for the missing ones")
+    @MainActor
+    func menuBarConfigFillsInMissingKinds() {
+        let defaults = Self.freshDefaults()
+        let partial: [MetricKind: MenuBarMetricConfig] = [.gpu: MenuBarMetricConfig(isEnabled: true, displayMode: .bar)]
+        defaults.set(try! JSONEncoder().encode(partial), forKey: "settings.menuBarConfig")
+
+        let store = SettingsStore(defaults: defaults, launchAtLoginService: FakeLaunchAtLoginService())
+
+        #expect(store.menuBarConfig(for: .gpu) == MenuBarMetricConfig(isEnabled: true, displayMode: .bar))
+        #expect(store.menuBarConfig(for: .cpu) == MenuBarMetricConfig(isEnabled: true, displayMode: .number))
+        #expect(store.menuBarConfig(for: .memory) == MenuBarMetricConfig(isEnabled: false, displayMode: .number))
+    }
+
+    @Test("Changing menu bar config notifies onMenuBarConfigChange, but not on a no-op set")
+    @MainActor
+    func menuBarConfigChangeNotifiesListener() {
+        let store = SettingsStore(defaults: Self.freshDefaults(), launchAtLoginService: FakeLaunchAtLoginService())
+        var notificationCount = 0
+        store.onMenuBarConfigChange = { notificationCount += 1 }
+
+        let config = MenuBarMetricConfig(isEnabled: true, displayMode: .bar)
+        store.setMenuBarConfig(config, for: .memory)
+        store.setMenuBarConfig(config, for: .memory) // no-op: must not notify again
+
+        #expect(notificationCount == 1)
+    }
+
     @Test("Invalid stored raw values fall back safely instead of crashing or misbehaving")
     @MainActor
     func invalidStoredValuesFallBackSafely() {

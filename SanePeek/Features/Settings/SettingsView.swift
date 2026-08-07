@@ -43,6 +43,12 @@ struct SettingsView: View {
                 .accessibilityIdentifier("settings.temperatureUnit")
             }
 
+            Section("Menu Bar") {
+                ForEach(MenuBarSettingsRow.allRows) { row in
+                    menuBarRow(for: row)
+                }
+            }
+
             Section("Startup") {
                 Toggle("Launch at Login", isOn: launchAtLoginBinding)
                     .accessibilityIdentifier("settings.launchAtLogin")
@@ -62,6 +68,47 @@ struct SettingsView: View {
         .dynamicTypeSize(.large ... .xxxLarge)
         .accessibilityIdentifier("settings.root")
         .onAppear { settingsStore.refreshLaunchAtLoginStatus() }
+    }
+
+    private func menuBarRow(for row: MenuBarSettingsRow) -> some View {
+        HStack {
+            Toggle(row.title, isOn: menuBarEnabledBinding(for: row.kind))
+                .accessibilityIdentifier("settings.menuBar.\(row.kind.rawValue).enabled")
+
+            Spacer()
+
+            Picker("", selection: menuBarModeBinding(for: row.kind)) {
+                ForEach(MenuBarDisplayMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 140)
+            .disabled(!settingsStore.menuBarConfig(for: row.kind).isEnabled)
+            .accessibilityIdentifier("settings.menuBar.\(row.kind.rawValue).mode")
+        }
+    }
+
+    private func menuBarEnabledBinding(for kind: MetricKind) -> Binding<Bool> {
+        Binding(
+            get: { settingsStore.menuBarConfig(for: kind).isEnabled },
+            set: { newValue in
+                var config = settingsStore.menuBarConfig(for: kind)
+                config.isEnabled = newValue
+                settingsStore.setMenuBarConfig(config, for: kind)
+            }
+        )
+    }
+
+    private func menuBarModeBinding(for kind: MetricKind) -> Binding<MenuBarDisplayMode> {
+        Binding(
+            get: { settingsStore.menuBarConfig(for: kind).displayMode },
+            set: { newValue in
+                var config = settingsStore.menuBarConfig(for: kind)
+                config.displayMode = newValue
+                settingsStore.setMenuBarConfig(config, for: kind)
+            }
+        )
     }
 
     private var launchAtLoginBinding: Binding<Bool> {
@@ -89,6 +136,23 @@ struct SettingsView: View {
             message
         }
     }
+}
+
+private struct MenuBarSettingsRow: Identifiable {
+    let kind: MetricKind
+    let title: String
+
+    var id: MetricKind { kind }
+
+    static let allRows: [MenuBarSettingsRow] = [
+        MenuBarSettingsRow(kind: .cpu, title: "CPU"),
+        MenuBarSettingsRow(kind: .memory, title: "Memory"),
+        MenuBarSettingsRow(kind: .temperature, title: "Temperature"),
+        MenuBarSettingsRow(kind: .network, title: "Network"),
+        MenuBarSettingsRow(kind: .storage, title: "Storage"),
+        MenuBarSettingsRow(kind: .battery, title: "Battery"),
+        MenuBarSettingsRow(kind: .gpu, title: "GPU")
+    ]
 }
 
 private extension RefreshRate {

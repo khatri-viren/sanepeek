@@ -26,7 +26,7 @@ nonisolated struct MetricTimestamp: Equatable, Comparable, Sendable {
     }
 }
 
-nonisolated enum MetricKind: String, CaseIterable, Hashable, Sendable {
+nonisolated enum MetricKind: String, CaseIterable, Hashable, Sendable, Codable {
     case cpu
     case memory
     case storage

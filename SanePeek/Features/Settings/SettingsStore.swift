@@ -39,11 +39,85 @@ final class SettingsStore {
         }
     }
 
+    // Which metrics show a live `MenuBarExtra` item and in which form. Only `.cpu` is enabled
+    // out of the box, matching how most menu bar system monitors ship — everything else is
+    // opt-in. Deliberately 7 independent stored properties rather than one
+    // `[MetricKind: MenuBarMetricConfig]` dictionary property: `@Observable` tracks
+    // invalidation per *stored property*, not per dictionary key, so a single dictionary
+    // property meant every `MenuBarExtra`'s `isInserted` binding (each reading this same
+    // property, one per metric) was invalidated by *any* metric's change — and since
+    // `MenuBarExtra`'s `isInserted` binding is bridged through AppKit's KVO, each invalidation
+    // re-read and wrote back through every binding, which could in turn invalidate the others
+    // again. In practice this pinned the main thread at ~100% CPU as soon as any menu bar item
+    // toggled. Reading/writing by `MetricKind` still works via `menuBarConfig(for:)` /
+    // `setMenuBarConfig(_:for:)` below — the `switch` inside only ever touches the one matching
+    // property, so per-metric access stays precisely scoped.
+    var cpuMenuBarConfig: MenuBarMetricConfig {
+        didSet {
+            guard cpuMenuBarConfig != oldValue else { return }
+            persistMenuBarConfig()
+            onMenuBarConfigChange?()
+        }
+    }
+
+    var memoryMenuBarConfig: MenuBarMetricConfig {
+        didSet {
+            guard memoryMenuBarConfig != oldValue else { return }
+            persistMenuBarConfig()
+            onMenuBarConfigChange?()
+        }
+    }
+
+    var storageMenuBarConfig: MenuBarMetricConfig {
+        didSet {
+            guard storageMenuBarConfig != oldValue else { return }
+            persistMenuBarConfig()
+            onMenuBarConfigChange?()
+        }
+    }
+
+    var networkMenuBarConfig: MenuBarMetricConfig {
+        didSet {
+            guard networkMenuBarConfig != oldValue else { return }
+            persistMenuBarConfig()
+            onMenuBarConfigChange?()
+        }
+    }
+
+    var batteryMenuBarConfig: MenuBarMetricConfig {
+        didSet {
+            guard batteryMenuBarConfig != oldValue else { return }
+            persistMenuBarConfig()
+            onMenuBarConfigChange?()
+        }
+    }
+
+    var gpuMenuBarConfig: MenuBarMetricConfig {
+        didSet {
+            guard gpuMenuBarConfig != oldValue else { return }
+            persistMenuBarConfig()
+            onMenuBarConfigChange?()
+        }
+    }
+
+    var temperatureMenuBarConfig: MenuBarMetricConfig {
+        didSet {
+            guard temperatureMenuBarConfig != oldValue else { return }
+            persistMenuBarConfig()
+            onMenuBarConfigChange?()
+        }
+    }
+
     private(set) var launchAtLoginStatus: LaunchAtLoginStatus
 
     /// Set by `AppState` to route cadence changes into the live `MetricsEngine`.
     @ObservationIgnored
     var onRefreshRateChange: ((RefreshRate) -> Void)?
+
+    /// Set by `AppState` to recompute which metrics the live `MetricsEngine` should be
+    /// reading whenever the menu bar's enabled set or display modes change.
+    @ObservationIgnored
+    var onMenuBarConfigChange: (() -> Void)?
 
     var formatter: MetricFormatter {
         MetricFormatter(byteUnitSystem: byteUnitSystem, temperatureUnit: temperatureUnit)
@@ -63,7 +137,39 @@ final class SettingsStore {
         refreshRate = Self.loadRefreshRate(from: defaults)
         byteUnitSystem = Self.loadByteUnitSystem(from: defaults)
         temperatureUnit = Self.loadTemperatureUnit(from: defaults)
+        let decodedMenuBarConfig = Self.loadMenuBarConfig(from: defaults)
+        cpuMenuBarConfig = decodedMenuBarConfig[.cpu] ?? Self.defaultMenuBarConfig(for: .cpu)
+        memoryMenuBarConfig = decodedMenuBarConfig[.memory] ?? Self.defaultMenuBarConfig(for: .memory)
+        storageMenuBarConfig = decodedMenuBarConfig[.storage] ?? Self.defaultMenuBarConfig(for: .storage)
+        networkMenuBarConfig = decodedMenuBarConfig[.network] ?? Self.defaultMenuBarConfig(for: .network)
+        batteryMenuBarConfig = decodedMenuBarConfig[.battery] ?? Self.defaultMenuBarConfig(for: .battery)
+        gpuMenuBarConfig = decodedMenuBarConfig[.gpu] ?? Self.defaultMenuBarConfig(for: .gpu)
+        temperatureMenuBarConfig = decodedMenuBarConfig[.temperature] ?? Self.defaultMenuBarConfig(for: .temperature)
         launchAtLoginStatus = launchAtLoginService.currentStatus()
+    }
+
+    func menuBarConfig(for kind: MetricKind) -> MenuBarMetricConfig {
+        switch kind {
+        case .cpu: cpuMenuBarConfig
+        case .memory: memoryMenuBarConfig
+        case .storage: storageMenuBarConfig
+        case .network: networkMenuBarConfig
+        case .battery: batteryMenuBarConfig
+        case .gpu: gpuMenuBarConfig
+        case .temperature: temperatureMenuBarConfig
+        }
+    }
+
+    func setMenuBarConfig(_ config: MenuBarMetricConfig, for kind: MetricKind) {
+        switch kind {
+        case .cpu: cpuMenuBarConfig = config
+        case .memory: memoryMenuBarConfig = config
+        case .storage: storageMenuBarConfig = config
+        case .network: networkMenuBarConfig = config
+        case .battery: batteryMenuBarConfig = config
+        case .gpu: gpuMenuBarConfig = config
+        case .temperature: temperatureMenuBarConfig = config
+        }
     }
 
     func refreshLaunchAtLoginStatus() {
@@ -88,6 +194,7 @@ final class SettingsStore {
         static let refreshRate = "settings.refreshRate"
         static let byteUnitSystem = "settings.byteUnitSystem"
         static let temperatureUnit = "settings.temperatureUnit"
+        static let menuBarConfig = "settings.menuBarConfig"
     }
 
     private static func loadAppearance(from defaults: UserDefaults) -> AppAppearance {
@@ -114,5 +221,33 @@ final class SettingsStore {
             return .celsius
         }
         return value
+    }
+
+    private static func defaultMenuBarConfig(for kind: MetricKind) -> MenuBarMetricConfig {
+        MenuBarMetricConfig(isEnabled: kind == .cpu, displayMode: .number)
+    }
+
+    private static func loadMenuBarConfig(from defaults: UserDefaults) -> [MetricKind: MenuBarMetricConfig] {
+        guard let data = defaults.data(forKey: Keys.menuBarConfig),
+              let decoded = try? JSONDecoder().decode([MetricKind: MenuBarMetricConfig].self, from: data)
+        else {
+            return [:]
+        }
+        return decoded
+    }
+
+    private func persistMenuBarConfig() {
+        let all: [MetricKind: MenuBarMetricConfig] = [
+            .cpu: cpuMenuBarConfig,
+            .memory: memoryMenuBarConfig,
+            .storage: storageMenuBarConfig,
+            .network: networkMenuBarConfig,
+            .battery: batteryMenuBarConfig,
+            .gpu: gpuMenuBarConfig,
+            .temperature: temperatureMenuBarConfig
+        ]
+        if let data = try? JSONEncoder().encode(all) {
+            defaults.set(data, forKey: Keys.menuBarConfig)
+        }
     }
 }
