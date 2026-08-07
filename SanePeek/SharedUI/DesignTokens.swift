@@ -87,7 +87,6 @@ private struct MetricCardBackground: ViewModifier {
                 .regularMaterial,
                 in: RoundedRectangle(cornerRadius: MetricCornerRadius.card, style: .continuous)
             )
-            .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
     }
 }
 
