@@ -132,8 +132,16 @@ final class AppState {
     /// always-on idle cost of keeping menu bar items live (V1.1 plan 3g).
     private static let backgroundCadencePolicy = CadencePolicy(refreshRate: .fiveSeconds)
 
+    /// The menu bar item whose popup is currently open, or nil if none is. Every enabled
+    /// metric has its own `MenuBarExtra`, and therefore its own popup window; observing this
+    /// lets the others dismiss themselves so only one is ever on screen (see
+    /// `handlePopupVisibilityChange`).
+    private(set) var frontmostPopupKind: MetricKind?
+
     private var isDashboardVisible = false
-    private var isPopupVisible = false
+    /// A set rather than a `Bool`: two popups overlap briefly during a hand-off, since the
+    /// incoming one appears before the outgoing one has finished dismissing.
+    private var visiblePopupKinds: Set<MetricKind> = []
     private var visibleDashboardWindowIDs: Set<ObjectIdentifier> = []
     private var dashboardWindowObservers: [ObjectIdentifier: [NSObjectProtocol]] = [:]
 
@@ -209,11 +217,26 @@ final class AppState {
         }
     }
 
-    /// Wired to the menu bar popup's `onAppear`/`onDisappear`. Opening the popup always widens
-    /// polling to every metric for as long as it's open — it's a full glance view, not scoped
-    /// to the menu bar's enabled subset (3c) — independent of whether the dashboard is open.
-    func handlePopupVisibilityChange(isVisible: Bool) {
-        isPopupVisible = isVisible
+    /// Wired to the menu bar popup's `onAppear`/`onDisappear`, once per menu bar item since
+    /// each `MenuBarExtra` owns a separate popup window. Opening a popup always widens polling
+    /// to every metric for as long as one is open — it's a full glance view, not scoped to the
+    /// menu bar's enabled subset (3c) — independent of whether the dashboard is open.
+    ///
+    /// Publishing the newly-opened `kind` is also how the *other* popups learn to close: macOS
+    /// does not dismiss one menu bar item's popup when a different item is clicked, so without
+    /// this every enabled metric could have its own copy on screen at once.
+    func handlePopupVisibilityChange(isVisible: Bool, kind: MetricKind) {
+        if isVisible {
+            visiblePopupKinds.insert(kind)
+            frontmostPopupKind = kind
+        } else {
+            visiblePopupKinds.remove(kind)
+            // Only clear if this was the frontmost one: the outgoing popup in a hand-off
+            // disappears *after* the incoming one has already claimed the slot.
+            if frontmostPopupKind == kind {
+                frontmostPopupKind = nil
+            }
+        }
         recomputePollingState()
     }
 
@@ -225,7 +248,7 @@ final class AppState {
     private func recomputePollingState() {
         guard let metricsEngine = dependencies.metricsEngine else { return }
 
-        let wantsFullCoverage = isDashboardVisible || isPopupVisible
+        let wantsFullCoverage = isDashboardVisible || !visiblePopupKinds.isEmpty
         let enabledMenuBarMetrics = Set(MetricKind.allCases.filter { settingsStore.menuBarConfig(for: $0).isEnabled })
         let activeMetrics = wantsFullCoverage ? Set(MetricKind.allCases) : enabledMenuBarMetrics
         let shouldPoll = wantsFullCoverage || !enabledMenuBarMetrics.isEmpty

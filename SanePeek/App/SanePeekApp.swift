@@ -35,49 +35,49 @@ struct SanePeekApp: App {
         // collection of menu bar items isn't an option; declaring all seven and toggling
         // `isInserted` is the supported way to make the set configurable (V1.1 plan 3f).
         MenuBarExtra(isInserted: menuBarEnabledBinding(for: .cpu)) {
-            MenuBarPopoverView(appState: appState)
+            MenuBarPopoverView(appState: appState, kind: .cpu)
         } label: {
             MenuBarMetricLabel(appState: appState, kind: .cpu)
         }
         .menuBarExtraStyle(.window)
 
         MenuBarExtra(isInserted: menuBarEnabledBinding(for: .memory)) {
-            MenuBarPopoverView(appState: appState)
+            MenuBarPopoverView(appState: appState, kind: .memory)
         } label: {
             MenuBarMetricLabel(appState: appState, kind: .memory)
         }
         .menuBarExtraStyle(.window)
 
         MenuBarExtra(isInserted: menuBarEnabledBinding(for: .storage)) {
-            MenuBarPopoverView(appState: appState)
+            MenuBarPopoverView(appState: appState, kind: .storage)
         } label: {
             MenuBarMetricLabel(appState: appState, kind: .storage)
         }
         .menuBarExtraStyle(.window)
 
         MenuBarExtra(isInserted: menuBarEnabledBinding(for: .network)) {
-            MenuBarPopoverView(appState: appState)
+            MenuBarPopoverView(appState: appState, kind: .network)
         } label: {
             MenuBarMetricLabel(appState: appState, kind: .network)
         }
         .menuBarExtraStyle(.window)
 
         MenuBarExtra(isInserted: menuBarEnabledBinding(for: .battery)) {
-            MenuBarPopoverView(appState: appState)
+            MenuBarPopoverView(appState: appState, kind: .battery)
         } label: {
             MenuBarMetricLabel(appState: appState, kind: .battery)
         }
         .menuBarExtraStyle(.window)
 
         MenuBarExtra(isInserted: menuBarEnabledBinding(for: .gpu)) {
-            MenuBarPopoverView(appState: appState)
+            MenuBarPopoverView(appState: appState, kind: .gpu)
         } label: {
             MenuBarMetricLabel(appState: appState, kind: .gpu)
         }
         .menuBarExtraStyle(.window)
 
         MenuBarExtra(isInserted: menuBarEnabledBinding(for: .temperature)) {
-            MenuBarPopoverView(appState: appState)
+            MenuBarPopoverView(appState: appState, kind: .temperature)
         } label: {
             MenuBarMetricLabel(appState: appState, kind: .temperature)
         }

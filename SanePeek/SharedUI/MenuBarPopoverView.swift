@@ -13,10 +13,15 @@ import SwiftUI
 /// widens `MetricsEngine`'s active-metric set to all seven for as long as the popup is open.
 struct MenuBarPopoverView: View {
     let appState: AppState
+    /// The menu bar item this popup belongs to. Every enabled metric declares its own
+    /// `MenuBarExtra` and therefore its own copy of this view, so the popup opens on the
+    /// metric whose item was actually clicked rather than always on CPU.
+    let kind: MetricKind
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
-    @State private var selectedMetric: MetricKind = .cpu
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedMetric: MetricKind
 
     /// Mirrors the dashboard's visual grouping (hero cards first, then the generic ones) so
     /// the popup reads consistently with the full dashboard rather than declaration order.
@@ -26,6 +31,12 @@ struct MenuBarPopoverView: View {
     private static let rowListWidth: CGFloat = 210
     /// Rounder than the system's own menu bar popover corner (~14pt).
     private static let windowCornerRadius: CGFloat = 24
+
+    init(appState: AppState, kind: MetricKind) {
+        self.appState = appState
+        self.kind = kind
+        _selectedMetric = State(initialValue: kind)
+    }
 
     private var viewModel: DashboardViewModel { appState.dashboardViewModel }
 
@@ -79,8 +90,25 @@ struct MenuBarPopoverView: View {
         .padding(16)
         .frame(width: 560)
         .background(WindowAccessor(onResolve: roundWindowCorners))
-        .onAppear { appState.handlePopupVisibilityChange(isVisible: true) }
-        .onDisappear { appState.handlePopupVisibilityChange(isVisible: false) }
+        .onAppear {
+            // The window is reused across openings, so `selectedMetric` still holds whatever
+            // was picked last time — reset it, or clicking Memory would reopen on whichever
+            // tab the previous session ended on.
+            selectedMetric = kind
+            appState.handlePopupVisibilityChange(isVisible: true, kind: kind)
+        }
+        .onDisappear { appState.handlePopupVisibilityChange(isVisible: false, kind: kind) }
+        // macOS leaves an already-open popup on screen when a *different* menu bar item is
+        // clicked, so each popup closes itself when another one takes over. Dismissing through
+        // the environment action rather than closing the `NSWindow` directly keeps
+        // `MenuBarExtra`'s own presented-state in sync — closing the window behind its back
+        // leaves it believing the popup is still up, so the next click on that item only
+        // toggles the stale flag and appears to do nothing.
+        .onChange(of: appState.frontmostPopupKind) { _, frontmost in
+            if let frontmost, frontmost != kind {
+                dismiss()
+            }
+        }
     }
 
     /// Rounds the popover window itself past the system default.
@@ -116,5 +144,5 @@ struct MenuBarPopoverView: View {
 }
 
 #Preview("Menu Bar Popover") {
-    MenuBarPopoverView(appState: AppState(dependencies: .preview))
+    MenuBarPopoverView(appState: AppState(dependencies: .preview), kind: .cpu)
 }
