@@ -9,11 +9,13 @@ struct DashboardView: View {
     @Environment(\.openSettings) private var openSettings
 
     let appState: AppState
+    let dockIconController: DockIconController
 
     private var viewModel: DashboardViewModel { appState.dashboardViewModel }
 
-    init(appState: AppState) {
+    init(appState: AppState, dockIconController: DockIconController) {
         self.appState = appState
+        self.dockIconController = dockIconController
     }
 
     var body: some View {
@@ -88,8 +90,10 @@ struct DashboardView: View {
         .dynamicTypeSize(.large ... .xxxLarge)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("dashboard.root")
-        .onAppear { appState.handleDashboardVisibilityChange(isVisible: true) }
-        .onDisappear { appState.handleDashboardVisibilityChange(isVisible: false) }
+        .background(WindowAccessor { window in
+            dockIconController.registerDashboardWindow(window)
+            appState.registerDashboardWindow(window)
+        })
     }
 
     @ViewBuilder
@@ -119,38 +123,38 @@ struct DashboardView: View {
 }
 
 #Preview("Normal") {
-    DashboardView(appState: AppState(dependencies: AppDependencies(runtime: .preview, fixtureSnapshot: MetricFixtures.dashboard())))
+    DashboardView(appState: AppState(dependencies: AppDependencies(runtime: .preview, fixtureSnapshot: MetricFixtures.dashboard())), dockIconController: DockIconController())
 }
 
 #Preview("Warning") {
-    DashboardView(appState: AppState(dependencies: AppDependencies(runtime: .preview, fixtureSnapshot: MetricFixtures.warning())))
+    DashboardView(appState: AppState(dependencies: AppDependencies(runtime: .preview, fixtureSnapshot: MetricFixtures.warning())), dockIconController: DockIconController())
 }
 
 #Preview("Critical") {
-    DashboardView(appState: AppState(dependencies: AppDependencies(runtime: .preview, fixtureSnapshot: MetricFixtures.critical())))
+    DashboardView(appState: AppState(dependencies: AppDependencies(runtime: .preview, fixtureSnapshot: MetricFixtures.critical())), dockIconController: DockIconController())
 }
 
 #Preview("Unavailable") {
-    DashboardView(appState: AppState(dependencies: AppDependencies(runtime: .preview, fixtureSnapshot: MetricFixtures.unavailable())))
+    DashboardView(appState: AppState(dependencies: AppDependencies(runtime: .preview, fixtureSnapshot: MetricFixtures.unavailable())), dockIconController: DockIconController())
 }
 
 #Preview("Dark Appearance") {
-    DashboardView(appState: AppState(dependencies: .preview))
+    DashboardView(appState: AppState(dependencies: .preview), dockIconController: DockIconController())
         .preferredColorScheme(.dark)
 }
 
 #Preview("Light Appearance") {
-    DashboardView(appState: AppState(dependencies: .preview))
+    DashboardView(appState: AppState(dependencies: .preview), dockIconController: DockIconController())
         .preferredColorScheme(.light)
 }
 
 #Preview("Minimum Window Size") {
-    DashboardView(appState: AppState(dependencies: .preview))
+    DashboardView(appState: AppState(dependencies: .preview), dockIconController: DockIconController())
         .frame(width: 720, height: 420)
 }
 
 #Preview("Reduced Motion") {
     let reduceMotionKeyPath = \EnvironmentValues.accessibilityReduceMotion as! WritableKeyPath<EnvironmentValues, Bool>
-    DashboardView(appState: AppState(dependencies: .preview))
+    DashboardView(appState: AppState(dependencies: .preview), dockIconController: DockIconController())
         .environment(reduceMotionKeyPath, true)
 }

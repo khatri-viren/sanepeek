@@ -3,6 +3,7 @@
 //  SanePeek
 //
 
+import AppKit
 import Foundation
 import Observation
 
@@ -133,6 +134,8 @@ final class AppState {
 
     private var isDashboardVisible = false
     private var isPopupVisible = false
+    private var visibleDashboardWindowIDs: Set<ObjectIdentifier> = []
+    private var dashboardWindowObservers: [ObjectIdentifier: [NSObjectProtocol]] = [:]
 
     init(dependencies: AppDependencies = .live) {
         self.dependencies = dependencies
@@ -150,12 +153,60 @@ final class AppState {
         }
     }
 
-    /// Wired to the dashboard window's own `onAppear`/`onDisappear` — the window being open
-    /// widens polling to every metric at the user's foreground refresh rate (3g), regardless
-    /// of which subset is enabled in the menu bar.
-    func handleDashboardVisibilityChange(isVisible: Bool) {
-        isDashboardVisible = isVisible
+    /// `DashboardView` calls this once its own `NSWindow` resolves (via `WindowAccessor`),
+    /// rather than relying on `.onAppear`/`.onDisappear`: `WindowGroup` pre-creates its window at
+    /// launch with real geometry even when `Info.plist`'s `LSUIElement` keeps it from ever being
+    /// shown (confirmed empirically — see `DockIconController`), so `.onAppear` fires whether or
+    /// not the user ever actually opens the dashboard. Using that would widen polling to every
+    /// metric at full cadence from the very first launch, permanently defeating 3g. Promoting
+    /// only on `didBecomeKeyNotification` and narrowing on `willCloseNotification` mirrors
+    /// `DockIconController`'s fix for the identical problem, and the window being open widens
+    /// polling to every metric at the user's foreground refresh rate (3g), regardless of which
+    /// subset is enabled in the menu bar.
+    func registerDashboardWindow(_ window: NSWindow) {
+        let id = ObjectIdentifier(window)
+        guard dashboardWindowObservers[id] == nil else { return }
+
+        let becomeKey = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.markDashboardWindowVisible(id: id) }
+        }
+        let willClose = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.markDashboardWindowClosed(id: id) }
+        }
+        // `queue: .main` guarantees both closures run on the main thread; `assumeIsolated` tells
+        // the compiler what the runtime already guarantees, since a `@Sendable` closure passed to
+        // `addObserver` isn't statically known to be MainActor-isolated.
+        dashboardWindowObservers[id] = [becomeKey, willClose]
+
+        if window.isKeyWindow {
+            markDashboardWindowVisible(id: id)
+        }
+    }
+
+    private func markDashboardWindowVisible(id: ObjectIdentifier) {
+        guard !visibleDashboardWindowIDs.contains(id) else { return }
+        visibleDashboardWindowIDs.insert(id)
+        isDashboardVisible = true
         recomputePollingState()
+    }
+
+    private func markDashboardWindowClosed(id: ObjectIdentifier) {
+        visibleDashboardWindowIDs.remove(id)
+        if let windowObservers = dashboardWindowObservers.removeValue(forKey: id) {
+            windowObservers.forEach(NotificationCenter.default.removeObserver)
+        }
+        if visibleDashboardWindowIDs.isEmpty {
+            isDashboardVisible = false
+            recomputePollingState()
+        }
     }
 
     /// Wired to the menu bar popup's `onAppear`/`onDisappear`. Opening the popup always widens

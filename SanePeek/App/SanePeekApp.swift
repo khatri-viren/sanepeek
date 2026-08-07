@@ -7,6 +7,7 @@ import SwiftUI
 
 @main
 struct SanePeekApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState: AppState
 
     init() {
@@ -19,7 +20,7 @@ struct SanePeekApp: App {
 
     var body: some Scene {
         WindowGroup(id: WindowID.dashboard) {
-            DashboardView(appState: appState)
+            DashboardView(appState: appState, dockIconController: appDelegate.dockIconController)
                 .preferredColorScheme(appState.settingsStore.appearance.colorScheme)
         }
         .defaultSize(width: 1100, height: 900)
