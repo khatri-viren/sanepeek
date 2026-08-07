@@ -560,6 +560,23 @@ struct SanePeekTests {
         #expect(secondResult.value?.interfaceNames == ["en0"])
     }
 
+    @Test("Network reader passes through the system adapter's primary interface name unchanged")
+    func networkReaderPassesThroughPrimaryInterfaceName() async {
+        let sample = NetworkSystemSample(
+            counter: NetworkCounterSample(
+                timestamp: .zero,
+                interfaces: [NetworkInterfaceCounter(name: "en0", downloadBytes: 0, uploadBytes: 0)]
+            ),
+            connectivity: .connected,
+            primaryInterfaceName: "en0"
+        )
+        let reader = LiveNetworkReader(adapter: FixtureNetworkSystemAdapter(samples: [sample]))
+
+        let result = await reader.read(at: .zero)
+
+        #expect(result.value?.primaryInterfaceName == "en0")
+    }
+
     @Test("Battery reader maps optional power values and desktop absence")
     func batteryReaderMapsPowerSourceValues() async {
         let reader = LiveBatteryReader(

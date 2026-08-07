@@ -32,7 +32,8 @@ nonisolated enum MetricFixtures {
                 downloadBytesPerSecond: 12_000_000,
                 uploadBytesPerSecond: 2_000_000,
                 connectivity: .connected,
-                interfaceNames: ["en0"]
+                interfaceNames: ["en0"],
+                primaryInterfaceName: "en0"
             ),
             battery: BatterySnapshot(
                 timestamp: timestamp,
@@ -87,7 +88,8 @@ nonisolated enum MetricFixtures {
                 downloadBytesPerSecond: 4_000_000,
                 uploadBytesPerSecond: 1_000_000,
                 connectivity: .connected,
-                interfaceNames: ["en0"]
+                interfaceNames: ["en0"],
+                primaryInterfaceName: "en0"
             ),
             battery: BatterySnapshot(
                 timestamp: timestamp,
@@ -142,7 +144,8 @@ nonisolated enum MetricFixtures {
                 downloadBytesPerSecond: 500_000,
                 uploadBytesPerSecond: 100_000,
                 connectivity: .connected,
-                interfaceNames: ["en0"]
+                interfaceNames: ["en0"],
+                primaryInterfaceName: "en0"
             ),
             battery: BatterySnapshot(
                 timestamp: timestamp,

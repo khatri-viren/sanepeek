@@ -406,7 +406,8 @@ actor MetricsEngine {
             downloadBytesPerSecond: previous?.downloadBytesPerSecond,
             uploadBytesPerSecond: previous?.uploadBytesPerSecond,
             connectivity: previous?.connectivity,
-            interfaceNames: previous?.interfaceNames
+            interfaceNames: previous?.interfaceNames,
+            primaryInterfaceName: previous?.primaryInterfaceName
         )
     }
 

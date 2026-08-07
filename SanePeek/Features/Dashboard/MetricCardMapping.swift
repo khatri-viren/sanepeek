@@ -422,9 +422,16 @@ nonisolated enum MetricCardMapping {
         return "\(formatter.bytes(UInt64(bytesPerSecond)))/s"
     }
 
+    /// `snapshot.interfaceNames` lists every "up" non-loopback interface, which
+    /// on a real Mac includes VPN tunnels, AirDrop/Continuity virtual
+    /// interfaces, and Internet Sharing bridges alongside the one actually
+    /// carrying traffic — not what "what am I connected through" should show.
+    /// `primaryInterfaceName` (from SystemConfiguration's default-route lookup)
+    /// is the single real answer; fall back to a connectivity word if there's
+    /// no default route.
     private static func networkSubtitleText(_ snapshot: NetworkSnapshot) -> String? {
-        if let interfaces = snapshot.interfaceNames, !interfaces.isEmpty {
-            return interfaces.joined(separator: ", ")
+        if let primary = snapshot.primaryInterfaceName, !primary.isEmpty {
+            return primary
         }
         return snapshot.connectivity.map { connectivityText($0) }
     }

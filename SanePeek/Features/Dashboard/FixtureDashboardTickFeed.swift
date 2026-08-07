@@ -148,7 +148,8 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                 downloadBytesPerSecond: snapshot.downloadBytesPerSecond.map { max(0, $0 * (1 + wave * 0.4)) },
                 uploadBytesPerSecond: snapshot.uploadBytesPerSecond.map { max(0, $0 * (1 + uploadWave * 0.4)) },
                 connectivity: snapshot.connectivity,
-                interfaceNames: snapshot.interfaceNames
+                interfaceNames: snapshot.interfaceNames,
+                primaryInterfaceName: snapshot.primaryInterfaceName
             )
         }
 

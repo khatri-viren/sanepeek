@@ -3,6 +3,7 @@ import Foundation
 import IOKit
 import IOKit.ps
 import Network
+import SystemConfiguration
 import os
 
 nonisolated protocol NetworkReader: MetricReader where Snapshot == NetworkSnapshot {}
@@ -10,13 +11,16 @@ nonisolated protocol NetworkReader: MetricReader where Snapshot == NetworkSnapsh
 nonisolated struct NetworkSystemSample: Sendable, Equatable {
     let counter: NetworkCounterSample
     let connectivity: NetworkConnectivity
+    let primaryInterfaceName: String?
 
     init(
         counter: NetworkCounterSample,
-        connectivity: NetworkConnectivity
+        connectivity: NetworkConnectivity,
+        primaryInterfaceName: String? = nil
     ) {
         self.counter = counter
         self.connectivity = connectivity
+        self.primaryInterfaceName = primaryInterfaceName
     }
 }
 
@@ -61,7 +65,8 @@ actor LiveNetworkReader: NetworkReader {
                     downloadBytesPerSecond: throughput?.downloadBytesPerSecond,
                     uploadBytesPerSecond: throughput?.uploadBytesPerSecond,
                     connectivity: sample.connectivity,
-                    interfaceNames: interfaceNames
+                    interfaceNames: interfaceNames,
+                    primaryInterfaceName: sample.primaryInterfaceName
                 )
             )
         case let .unavailable(reason):
@@ -70,6 +75,36 @@ actor LiveNetworkReader: NetworkReader {
             logger.warning("read failed: \(failure.kind.rawValue, privacy: .public)")
             return .failed(failure)
         }
+    }
+}
+
+nonisolated protocol NetworkPrimaryInterfaceSource: Sendable {
+    var primaryInterfaceName: String? { get }
+}
+
+/// Reads the BSD name of the interface actually carrying the default route via
+/// SystemConfiguration — a public framework, no special entitlement — rather
+/// than guessing from `getifaddrs`'s "up" interface list, which includes VPN
+/// tunnels and AirDrop/Continuity virtual interfaces alongside the real one.
+/// `@unchecked Sendable` because `SCDynamicStore` isn't Sendable-checked, but
+/// `SCDynamicStoreCopyValue` is documented safe to call concurrently for reads
+/// — same rationale as `NWPathConnectivitySource` below.
+final class SCDynamicStorePrimaryInterfaceSource: NetworkPrimaryInterfaceSource, @unchecked Sendable {
+    private let store: SCDynamicStore?
+
+    init() {
+        store = SCDynamicStoreCreate(nil, "com.sanepeek.app" as CFString, nil, nil)
+    }
+
+    var primaryInterfaceName: String? {
+        guard let store,
+              let value = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any],
+              let name = value["PrimaryInterface"] as? String,
+              !name.isEmpty
+        else {
+            return nil
+        }
+        return name
     }
 }
 
@@ -82,11 +117,14 @@ nonisolated protocol NetworkConnectivitySource: Sendable {
 
 nonisolated struct DarwinNetworkSystemAdapter: NetworkSystemAdapter {
     private let connectivitySource: any NetworkConnectivitySource
+    private let primaryInterfaceSource: any NetworkPrimaryInterfaceSource
 
     init(
-        connectivitySource: any NetworkConnectivitySource = NWPathConnectivitySource()
+        connectivitySource: any NetworkConnectivitySource = NWPathConnectivitySource(),
+        primaryInterfaceSource: any NetworkPrimaryInterfaceSource = SCDynamicStorePrimaryInterfaceSource()
     ) {
         self.connectivitySource = connectivitySource
+        self.primaryInterfaceSource = primaryInterfaceSource
         connectivitySource.start()
     }
 
@@ -144,7 +182,8 @@ nonisolated struct DarwinNetworkSystemAdapter: NetworkSystemAdapter {
                     timestamp: timestamp,
                     interfaces: interfaces
                 ),
-                connectivity: connectivitySource.connectivity
+                connectivity: connectivitySource.connectivity,
+                primaryInterfaceName: primaryInterfaceSource.primaryInterfaceName
             )
         )
     }

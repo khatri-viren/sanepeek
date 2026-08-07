@@ -181,7 +181,7 @@ struct MetricCardMappingTests {
         #expect(card.sparklineValues == [1, 2, 3])
     }
 
-    @Test("Network detail formats download/upload text, passes through history, and prefers interface names for the subtitle")
+    @Test("Network detail formats download/upload text, passes through history, and prefers the primary interface name for the subtitle")
     func networkDetailMapsAvailableSnapshot() {
         let detail = MetricCardMapping.networkDetail(
             NetworkSnapshot(
@@ -189,7 +189,8 @@ struct MetricCardMappingTests {
                 downloadBytesPerSecond: 1_000_000,
                 uploadBytesPerSecond: 500_000,
                 connectivity: .connected,
-                interfaceNames: ["en0"]
+                interfaceNames: ["en0"],
+                primaryInterfaceName: "en0"
             ),
             downloadHistory: [1, 2],
             uploadHistory: [3, 4]
@@ -202,7 +203,25 @@ struct MetricCardMappingTests {
         #expect(detail?.uploadHistory == [3, 4])
     }
 
-    @Test("Network detail falls back to a connectivity word when no interface names are reported")
+    @Test("Network detail subtitle ignores interfaceNames entirely — only the primary interface name (or a connectivity fallback) is shown, never the full up-interface list")
+    func networkDetailSubtitleUsesOnlyThePrimaryInterface() {
+        let detail = MetricCardMapping.networkDetail(
+            NetworkSnapshot(
+                timestamp: Self.timestamp,
+                downloadBytesPerSecond: 1_000_000,
+                uploadBytesPerSecond: 500_000,
+                connectivity: .connected,
+                interfaceNames: ["anpi0", "anpi1", "awdl0", "bridge0", "en0", "en1", "llw0", "utun0", "utun1"],
+                primaryInterfaceName: "en0"
+            ),
+            downloadHistory: [],
+            uploadHistory: []
+        )
+
+        #expect(detail?.subtitleText == "en0")
+    }
+
+    @Test("Network detail subtitle falls back to a connectivity word when there's no primary interface (e.g. no default route)")
     func networkDetailSubtitleFallsBackToConnectivity() {
         let detail = MetricCardMapping.networkDetail(
             NetworkSnapshot(
@@ -210,7 +229,8 @@ struct MetricCardMappingTests {
                 downloadBytesPerSecond: 1_000_000,
                 uploadBytesPerSecond: 500_000,
                 connectivity: .connected,
-                interfaceNames: []
+                interfaceNames: ["utun0", "awdl0"],
+                primaryInterfaceName: nil
             ),
             downloadHistory: [],
             uploadHistory: []
