@@ -88,22 +88,10 @@ struct MemoryCardView: View {
             .frame(width: 170, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
-                stackedChart(for: detail)
+                MemoryCardView.chart(for: detail, accentColor: model.accentColor)
                     .frame(minHeight: 120)
 
-                HStack {
-                    Text("60s")
-                    Spacer()
-                    Text("45s")
-                    Spacer()
-                    Text("30s")
-                    Spacer()
-                    Text("15s")
-                    Spacer()
-                    Text("now")
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                HistoryChartTimeAxis()
             }
             .frame(maxWidth: .infinity)
         }
@@ -122,60 +110,28 @@ struct MemoryCardView: View {
         }
     }
 
-    private func stackedChart(for detail: MemoryCardDetail?) -> some View {
-        let appHistory = Array((detail?.appHistory ?? []).suffix(MetricChartLayout.historyWindowSize))
-        let wiredHistory = Array((detail?.wiredHistory ?? []).suffix(MetricChartLayout.historyWindowSize))
-        let compressedHistory = Array((detail?.compressedHistory ?? []).suffix(MetricChartLayout.historyWindowSize))
-        // Before the window fills up, anchor samples to the right (now) edge
-        // and leave the unpopulated seconds as blank space on the left, rather
-        // than stretching a handful of samples across the full chart width.
-        let offset = MetricChartLayout.historyWindowSize - appHistory.count
-
-        return GeometryReader { proxy in
-            let slotWidth = proxy.size.width / CGFloat(MetricChartLayout.historyWindowSize)
-            let barWidth = max(MetricChartLayout.minimumBarWidth, slotWidth * MetricChartLayout.barWidthFraction)
-
-            Chart {
-                ForEach(Array(appHistory.enumerated()), id: \.offset) { index, app in
-                    let wired = index < wiredHistory.count ? wiredHistory[index] : 0
-                    let compressed = index < compressedHistory.count ? compressedHistory[index] : 0
-                    let free = max(0, 1 - app - wired - compressed)
-                    let x = offset + index
-
-                    BarMark(x: .value("Tick", x), y: .value("App", app), width: .fixed(barWidth))
-                        .foregroundStyle(model.accentColor)
-                        .cornerRadius(2)
-
-                    BarMark(x: .value("Tick", x), y: .value("Wired", wired), width: .fixed(barWidth))
-                        .foregroundStyle(MetricPalette.memoryWired)
-                        .cornerRadius(2)
-
-                    BarMark(x: .value("Tick", x), y: .value("Compressed", compressed), width: .fixed(barWidth))
-                        .foregroundStyle(MetricPalette.memoryCompressed)
-                        .cornerRadius(2)
-
-                    // Fills the rest of the bar up to 100%, matching the "Free"
-                    // legend swatch, so the bar's full height always reads as the
-                    // whole sample rather than stopping short at app + wired + compressed.
-                    BarMark(x: .value("Tick", x), y: .value("Free", free), width: .fixed(barWidth))
-                        .foregroundStyle(MetricPalette.idleFill)
-                        .cornerRadius(2)
-                }
-            }
-            .chartXScale(domain: 0...(MetricChartLayout.historyWindowSize - 1))
-            .chartXAxis(.hidden)
-            .chartYAxis {
-                AxisMarks(values: [0, 0.5, 1.0]) {
-                    AxisGridLine()
-                }
-            }
-            .chartYScale(domain: 0...1)
-            .chartLegend(.hidden)
-            // No implicit animation here: this redraws every tick, and animating
-            // a full 60-bar replace made old and new bars cross-fade on top of
-            // each other, reading as bars piling up instead of a clean sliding
-            // window.
-        }
+    /// The App/Wired/Compressed stack, shared with the menu bar popup so both render memory
+    /// history identically. `axisLabel` is nil here — the legend column beside the chart
+    /// already gives the scale, so the dashboard shows gridlines alone.
+    ///
+    /// `showsFree` fills the rest of each bar up to 100%, matching the "Free" legend swatch,
+    /// so the bar's full height reads as the whole sample rather than stopping short. The
+    /// popup turns it off: at its smaller size the free band crowded the actual usage.
+    static func chart(
+        for detail: MemoryCardDetail?,
+        accentColor: Color,
+        axisLabel: ((Double) -> String)? = nil,
+        showsFree: Bool = true
+    ) -> some View {
+        StackedHistoryChart(
+            series: [
+                MetricChartSeries("App", color: accentColor, values: detail?.appHistory ?? []),
+                MetricChartSeries("Wired", color: MetricPalette.memoryWired, values: detail?.wiredHistory ?? []),
+                MetricChartSeries("Compressed", color: MetricPalette.memoryCompressed, values: detail?.compressedHistory ?? [])
+            ],
+            remainderColor: showsFree ? MetricPalette.idleFill : nil,
+            axisLabel: axisLabel
+        )
     }
 
     private func statusWord(_ status: MetricCardStatus?) -> String {

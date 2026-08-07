@@ -22,8 +22,10 @@ nonisolated enum MetricTypography {
     static let label = Font.system(.caption, design: .rounded).weight(.medium)
 }
 
-/// Colors match the PRD's metric palette table. GPU has no assigned color in the
-/// PRD; teal is an inferred accent kept visually distinct from the other five.
+/// Mostly the PRD's metric palette table, with three deliberate divergences the
+/// PRD records: Memory and Network are blue rather than purple/cyan, and GPU and
+/// Temperature have no PRD entry at all (teal and pink are inferred accents kept
+/// distinct from the other metrics and from the warning/critical orange-red).
 nonisolated enum MetricPalette {
     static let cpu = Color.blue
     /// Second tone in the CPU card's user/system breakdown; a shade of `cpu`
@@ -35,18 +37,31 @@ nonisolated enum MetricPalette {
     static let memoryWired = Color.blue.opacity(0.6)
     static let memoryCompressed = Color.blue.opacity(0.35)
     static let storage = Color.gray
-    static let network = Color.cyan
-    /// Network's upload-direction data color. Shares `warning`'s hue but is a
-    /// distinct token, not a reuse: `warning` is load-bearing status-pill
-    /// semantics (CPU/storage/battery/temperature all tint their pill orange
-    /// for "warning"), while this is a plain data-series color — network has
-    /// no threshold policy and never shows a status pill.
-    static let networkUpload = Color.orange
+    /// Deliberately the same blue as `cpu`/`memory` rather than the PRD's cyan:
+    /// cyan next to the muted upload orange read as a third unrelated hue in the
+    /// popup, and the app now leans on shape (stacked vs. mirrored bars) and the
+    /// card's title to tell metrics apart, not on giving each one its own color.
+    static let network = Color.blue
+    /// Network's upload-direction data color. A muted orange, not the system
+    /// `Color.orange`: at full saturation it fought the download blue for
+    /// attention in the mirrored chart, where the two are stacked against a
+    /// shared baseline and neither direction is the more important one.
+    ///
+    /// Kept a distinct token from `warning` rather than a reuse of it, even
+    /// though both are orange-ish: `warning` is load-bearing status-pill
+    /// semantics (CPU/storage/battery/temperature all tint their pill for
+    /// "warning"), while this is a plain data-series color — network has no
+    /// threshold policy and never shows a status pill.
+    static let networkUpload = Color(red: 0.875, green: 0.563, blue: 0.125)
+    /// Both network series are pulled back slightly rather than drawn at full strength.
+    /// The mirrored chart fills from a shared baseline in *both* directions at once, so
+    /// at full opacity the two bands read as solid slabs of color; easing off lets the
+    /// gridline and baseline stay visible through them without washing the series out.
+    static let networkSeriesOpacity: Double = 0.8
     static let battery = Color.green
     static let gpu = Color.teal
-    /// Temperature has no assigned color in the PRD either; pink is the only
-    /// remaining unclaimed system hue distinct from every other metric and from
-    /// the orange/red reserved for warning/critical.
+    /// Pink is the only unclaimed system hue distinct from every other metric
+    /// and from the orange/red reserved for warning/critical.
     static let temperature = Color.pink
     static let warning = Color.orange
     static let critical = Color.red
@@ -61,7 +76,8 @@ nonisolated enum MetricPalette {
     static let idleFill = Color.secondary.opacity(0.1)
 }
 
-/// Tuning for the stacked-history charts shared by the CPU and Memory hero cards.
+/// Tuning shared by every history chart — the CPU/Memory hero cards, the Network card's
+/// mirrored chart, and the menu bar popup's copies of all three.
 nonisolated enum MetricChartLayout {
     /// Matches the ring buffer capacity `MetricsEngine`/`FixtureDashboardTickFeed`
     /// retain history in, and the "60s...now" axis labels below each chart.
@@ -71,8 +87,20 @@ nonisolated enum MetricChartLayout {
     /// always a gap, whether the slot is wide (big window) or narrow (small
     /// window), instead of a fixed point value that either wastes space on a
     /// big card or disappears on a small one.
-    static let barWidthFraction: CGFloat = 0.7
+    static let barWidthFraction: CGFloat = 0.85
+    /// The mirrored network chart runs its bars slightly narrower than the stacked
+    /// charts. It draws in both directions from a shared baseline, so it needs a
+    /// visible gap between bars to still read as a series of samples — pushed much
+    /// past this the gap falls below a pixel at popup width and the bars fuse into
+    /// one continuous band.
+    static let mirroredBarWidthFraction: CGFloat = 0.75
     static let minimumBarWidth: CGFloat = 2
+
+    /// Rounding on a bar's outer end. Deliberately slight: at 60 bars across a
+    /// popup-sized chart the bars are only a few points wide, so a radius near
+    /// half that width domes every bar into a lozenge and reads as noise rather
+    /// than as a bar.
+    static let barCornerRadius: CGFloat = 1
 
     /// Floor for the Network card's bidirectional chart y-domain so it never
     /// collapses to a degenerate 0...0 range when both download and upload are idle.

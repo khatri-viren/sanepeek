@@ -86,22 +86,10 @@ struct CPUCardView: View {
             .frame(width: 170, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
-                stackedChart(for: detail)
+                CPUCardView.chart(for: detail, accentColor: model.accentColor)
                     .frame(minHeight: 120)
 
-                HStack {
-                    Text("60s")
-                    Spacer()
-                    Text("45s")
-                    Spacer()
-                    Text("30s")
-                    Spacer()
-                    Text("15s")
-                    Spacer()
-                    Text("now")
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                HistoryChartTimeAxis()
             }
             .frame(maxWidth: .infinity)
         }
@@ -120,54 +108,27 @@ struct CPUCardView: View {
         }
     }
 
-    private func stackedChart(for detail: CPUCardDetail?) -> some View {
-        let userHistory = Array((detail?.userHistory ?? []).suffix(MetricChartLayout.historyWindowSize))
-        let systemHistory = Array((detail?.systemHistory ?? []).suffix(MetricChartLayout.historyWindowSize))
-        // Before the window fills up, anchor samples to the right (now) edge
-        // and leave the unpopulated seconds as blank space on the left, rather
-        // than stretching a handful of samples across the full chart width.
-        let offset = MetricChartLayout.historyWindowSize - userHistory.count
-
-        return GeometryReader { proxy in
-            let slotWidth = proxy.size.width / CGFloat(MetricChartLayout.historyWindowSize)
-            let barWidth = max(MetricChartLayout.minimumBarWidth, slotWidth * MetricChartLayout.barWidthFraction)
-
-            Chart {
-                ForEach(Array(userHistory.enumerated()), id: \.offset) { index, user in
-                    let system = index < systemHistory.count ? systemHistory[index] : 0
-                    let idle = max(0, 1 - user - system)
-                    let x = offset + index
-
-                    BarMark(x: .value("Tick", x), y: .value("User", user), width: .fixed(barWidth))
-                        .foregroundStyle(model.accentColor)
-                        .cornerRadius(2)
-
-                    BarMark(x: .value("Tick", x), y: .value("System", system), width: .fixed(barWidth))
-                        .foregroundStyle(MetricPalette.cpuSystem)
-                        .cornerRadius(2)
-
-                    // Fills the rest of the bar up to 100%, matching the "Idle"
-                    // legend swatch, so the bar's full height always reads as the
-                    // whole sample rather than stopping short at user + system.
-                    BarMark(x: .value("Tick", x), y: .value("Idle", idle), width: .fixed(barWidth))
-                        .foregroundStyle(MetricPalette.idleFill)
-                        .cornerRadius(2)
-                }
-            }
-            .chartXScale(domain: 0...(MetricChartLayout.historyWindowSize - 1))
-            .chartXAxis(.hidden)
-            .chartYAxis {
-                AxisMarks(values: [0, 0.5, 1.0]) {
-                    AxisGridLine()
-                }
-            }
-            .chartYScale(domain: 0...1)
-            .chartLegend(.hidden)
-            // No implicit animation here: this redraws every tick, and animating
-            // a full 60-bar replace made old and new bars cross-fade on top of
-            // each other, reading as bars piling up instead of a clean sliding
-            // window.
-        }
+    /// The user/system stack, shared with the menu bar popup so both render CPU history
+    /// identically. `axisLabel` is nil here — the legend column beside the chart already
+    /// gives the scale, so the dashboard shows gridlines alone.
+    ///
+    /// `showsIdle` fills the rest of each bar up to 100%, matching the "Idle" legend swatch,
+    /// so the bar's full height reads as the whole sample rather than stopping short. The
+    /// popup turns it off: at its smaller size the idle band crowded the actual load.
+    static func chart(
+        for detail: CPUCardDetail?,
+        accentColor: Color,
+        axisLabel: ((Double) -> String)? = nil,
+        showsIdle: Bool = true
+    ) -> some View {
+        StackedHistoryChart(
+            series: [
+                MetricChartSeries("User", color: accentColor, values: detail?.userHistory ?? []),
+                MetricChartSeries("System", color: MetricPalette.cpuSystem, values: detail?.systemHistory ?? [])
+            ],
+            remainderColor: showsIdle ? MetricPalette.idleFill : nil,
+            axisLabel: axisLabel
+        )
     }
 
     private func statusWord(_ status: MetricCardStatus?) -> String {
