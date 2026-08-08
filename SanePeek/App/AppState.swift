@@ -148,6 +148,12 @@ final class AppState {
     private var visiblePopupKinds: Set<MetricKind> = []
     private var visibleDashboardWindowIDs: Set<ObjectIdentifier> = []
     private var dashboardWindowObservers: [ObjectIdentifier: [NSObjectProtocol]] = [:]
+    /// The single dashboard `NSWindow`, captured the first time it resolves (at launch —
+    /// `WindowGroup` pre-creates it before the user ever asks for it; see
+    /// `registerDashboardWindow`). Kept so the popup's "Open Dashboard" button can re-show this
+    /// exact window via AppKit instead of SwiftUI's `openWindow(id:)`, which creates a brand new
+    /// `NSWindow` on every call rather than reusing one — see `presentDashboardWindow`.
+    private weak var dashboardWindow: NSWindow?
 
     /// True while the display is asleep or the session is locked — states in which nothing the
     /// engine drives (menu bar items included; the lock screen doesn't show them) can be seen at
@@ -221,6 +227,7 @@ final class AppState {
     /// polling to every metric at the user's foreground refresh rate (3g), regardless of which
     /// subset is enabled in the menu bar.
     func registerDashboardWindow(_ window: NSWindow) {
+        dashboardWindow = window
         let id = ObjectIdentifier(window)
         guard dashboardWindowObservers[id] == nil else { return }
 
@@ -246,6 +253,20 @@ final class AppState {
         if window.isKeyWindow {
             markDashboardWindowVisible(id: id)
         }
+    }
+
+    /// Brings the single, pre-created dashboard window forward, in preference to the menu bar
+    /// popup's `openWindow(id:)` fallback: `WindowGroup(id:)` treats every `openWindow(id:)` call
+    /// as a request for a new window rather than a request to reuse an existing one, so routing
+    /// the popup's "Open Dashboard" button through it left a fresh, silently orphaned window
+    /// stacked behind the visible one on every click. Returns whether a window was available to
+    /// present, so the caller can fall back to `openWindow(id:)` if this ever races ahead of the
+    /// window's first registration.
+    @discardableResult
+    func presentDashboardWindow() -> Bool {
+        guard let dashboardWindow else { return false }
+        dashboardWindow.makeKeyAndOrderFront(nil)
+        return true
     }
 
     private func markDashboardWindowVisible(id: ObjectIdentifier) {

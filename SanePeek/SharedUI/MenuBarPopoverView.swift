@@ -57,7 +57,13 @@ struct MenuBarPopoverView: View {
                 Spacer()
 
                 Button {
-                    openWindow(id: WindowID.dashboard)
+                    // `appState.presentDashboardWindow()` re-shows the single window this app
+                    // pre-creates at launch; `openWindow(id:)` is only a fallback for the
+                    // (practically unreachable) case where that window hasn't registered yet,
+                    // since it otherwise creates a brand new, orphaned window on every call.
+                    if !appState.presentDashboardWindow() {
+                        openWindow(id: WindowID.dashboard)
+                    }
                     // The app is an accessory (`LSUIElement`), so opening a window doesn't
                     // bring it forward on its own.
                     NSApp.activate(ignoringOtherApps: true)
