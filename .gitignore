@@ -1,1 +1,17 @@
 .cortex/
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+# Code coverage artifacts dropped in the working tree by test runs
+*.profraw
+
+# Release staging
+dist/

@@ -21,10 +21,29 @@ complexity, or resource usage of traditional monitoring tools.
 - **Genuinely light**: idle CPU and memory footprint are treated as a feature, not an
   afterthought — see [Performance](#performance) below.
 
+## Installing
+
+```sh
+brew tap khatri-viren/sanepeek https://github.com/khatri-viren/sanepeek
+brew install --cask --no-quarantine sanepeek
+```
+
+Or grab the DMG from [Releases](https://github.com/khatri-viren/sanepeek/releases).
+
+SanePeek is signed ad-hoc rather than notarized, because notarization requires a paid
+Apple Developer Program membership. macOS will therefore say it cannot verify the
+developer the first time you open a downloaded copy: open **System Settings → Privacy &
+Security**, scroll down, and click **Open Anyway**. The `--no-quarantine` Homebrew flag
+above skips that step by never applying the quarantine attribute in the first place.
+
+Once installed, SanePeek updates itself through [Sparkle](https://sparkle-project.org) —
+Settings → Updates has the current version and a manual check.
+
 ## Requirements
 
 - macOS 15.0 or later
-- Xcode 16 or later (Swift 6, SwiftUI, Swift Testing)
+- Xcode 26 or later — the popup's Liquid Glass path compiles against the macOS 26 SDK,
+  behind an availability check, so the app still runs on macOS 15
 
 ## Building and running
 
@@ -32,8 +51,10 @@ complexity, or resource usage of traditional monitoring tools.
 open SanePeek.xcodeproj
 ```
 
-Build and run the `SanePeek` scheme (⌘R). The app is sandboxed and requests no special
-entitlements beyond what's needed to read system metrics.
+Build and run the `SanePeek` scheme (⌘R). The app is not sandboxed: reading the SMC for
+temperature and IOKit power sources for battery both require access the App Sandbox does
+not grant, which is also why SanePeek is distributed directly rather than through the
+Mac App Store.
 
 To build from the command line:
 
@@ -83,6 +104,40 @@ Numbers were captured with `top -l 36 -s 5` for CPU/memory and `sudo powermetric
 --samplers tasks --show-process-energy` for energy impact. Each app's widget/helper
 process was excluded so the comparison is core menu-bar process to core menu-bar
 process.
+
+## Releasing
+
+Releases are cut by tag. `.github/workflows/release.yml` builds, packages, publishes the
+GitHub Release, updates the Sparkle appcast, and bumps the Homebrew cask:
+
+```sh
+git tag v1.1.0
+git push --tags
+```
+
+### One-time setup
+
+1. **Sparkle signing key.** Already generated; the public half is in `Config/Info.plist`
+   under `SUPublicEDKey` and the private half is in the maintainer's login Keychain.
+   Never change it: installed copies trust only the key baked into their own bundle, so a
+   new key orphans every existing install and they can only be updated by reinstalling.
+
+   The tooling ships with the Swift package, at
+   `…/DerivedData/SanePeek-*/SourcePackages/artifacts/sparkle/Sparkle/bin/`. Re-print the
+   public key with `./generate_keys -p`, or export the private key for CI with
+   `./generate_keys -x private-key.txt`.
+
+2. **`SPARKLE_PRIVATE_KEY` secret.** Export the private key as above and paste the file's
+   contents into a repository secret of that name, then delete the file. Anyone holding it
+   can sign an update that every install will download and run, and because the app isn't
+   notarized, Apple's revocation is not a backstop.
+
+3. **GitHub Pages.** Enable Pages for the repository, serving from the `gh-pages` branch.
+   The workflow publishes `appcast.xml` there, and `SUFeedURL` points at it. Sparkle polls
+   that one URL forever, so it must not move.
+
+Until `SPARKLE_PRIVATE_KEY` is set the workflow still builds and publishes the DMG; it just
+skips the appcast and logs a warning, so existing users won't be offered the update.
 
 ## License
 

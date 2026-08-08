@@ -1,0 +1,215 @@
+name: Release
+
+# Tag-driven: `git tag v1.1.0 && git push --tags` publishes a release. The tag is the
+# single source of truth for the marketing version, so it never has to be kept in sync
+# with the Xcode project by hand.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, without the leading v (e.g. 1.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Xcode 26 and the macOS 26 SDK are preinstalled here, which the popup's
+    # `glassEffect` availability branch needs to compile.
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Sparkle compares CFBundleVersion, so it has to increase on every build.
+          # The run number is monotonic per workflow and needs no state of its own.
+          echo "build=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Build (Release, ad-hoc signed)
+        run: |
+          set -euo pipefail
+          # Ad-hoc (`-`) rather than unsigned: arm64 refuses to execute a binary with no
+          # signature at all, so this is the floor for a distributable build without a
+          # paid Developer ID. Manual style because the runner has no signing assets.
+          xcodebuild \
+            -project SanePeek.xcodeproj \
+            -scheme SanePeek \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            build
+
+      - name: Verify the bundle is signed and launchable
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release/SanePeek.app"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          # Catches a bundle that would die on launch for a missing/!=arm64 slice.
+          lipo -info "$APP/Contents/MacOS/SanePeek"
+
+      - name: Package DMG
+        id: package
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          DMG="SanePeek-${VERSION}.dmg"
+
+          mkdir -p dist/stage
+          cp -R "build/Build/Products/Release/SanePeek.app" dist/stage/
+          # The drop target that makes the window a drag-to-install.
+          ln -s /Applications dist/stage/Applications
+
+          hdiutil create \
+            -volname "SanePeek ${VERSION}" \
+            -srcfolder dist/stage \
+            -ov -format UDZO \
+            "dist/${DMG}"
+
+          echo "dmg=dist/${DMG}" >> "$GITHUB_OUTPUT"
+          echo "dmg_name=${DMG}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign the DMG for Sparkle
+        id: sign
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SPARKLE_PRIVATE_KEY:-}" ]; then
+            echo "::warning::SPARKLE_PRIVATE_KEY is not set — skipping appcast, so this release will not reach existing users via in-app update."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Resolved rather than pinned: a hardcoded version 404s the moment Sparkle
+          # publishes a new one, and only the signing tool is being used here.
+          SPARKLE_TAG=$(curl -fsSL https://api.github.com/repos/sparkle-project/Sparkle/releases/latest | jq -r .tag_name)
+          curl -fsSL -o sparkle.tar.xz \
+            "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_TAG}/Sparkle-${SPARKLE_TAG}.tar.xz"
+          mkdir -p sparkle && tar -xf sparkle.tar.xz -C sparkle
+
+          # `-s <key>` is deprecated as insecure; the key goes in on stdin instead so it
+          # never lands in the process table or on disk.
+          OUTPUT=$(printf '%s' "$SPARKLE_PRIVATE_KEY" \
+            | ./sparkle/bin/sign_update --ed-key-file - "${{ steps.package.outputs.dmg }}")
+
+          # sign_update emits: sparkle:edSignature="…" length="…"
+          echo "attrs=${OUTPUT}" >> "$GITHUB_OUTPUT"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build appcast
+        if: steps.sign.outputs.signed == 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          BUILD="${{ steps.version.outputs.build }}"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${{ steps.package.outputs.dmg_name }}"
+
+          mkdir -p site
+          cat > site/appcast.xml <<XML
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>SanePeek</title>
+              <link>https://github.com/${GITHUB_REPOSITORY}</link>
+              <description>Updates for SanePeek</description>
+              <language>en</language>
+              <item>
+                <title>${VERSION}</title>
+                <sparkle:version>${BUILD}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+                <link>https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION}</link>
+                <sparkle:releaseNotesLink>https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION}</sparkle:releaseNotesLink>
+                <pubDate>$(date -u "+%a, %d %b %Y %H:%M:%S +0000")</pubDate>
+                <enclosure url="${URL}" type="application/octet-stream" ${{ steps.sign.outputs.attrs }} />
+              </item>
+            </channel>
+          </rss>
+          XML
+
+      - name: Publish appcast to GitHub Pages
+        if: steps.sign.outputs.signed == 'true'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          # Sparkle polls one fixed URL forever, so the feed must keep its path across
+          # releases: https://<owner>.github.io/<repo>/appcast.xml
+          keep_files: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # `--generate-notes` and `--notes` are mutually exclusive, so the changelog is
+          # generated first and the install notes appended to it afterwards.
+          gh release create "v${VERSION}" \
+            "${{ steps.package.outputs.dmg }}" \
+            --title "SanePeek ${VERSION}" \
+            --generate-notes
+
+          GENERATED=$(gh release view "v${VERSION}" --json body --jq .body)
+
+          gh release edit "v${VERSION}" --notes "${GENERATED}
+
+          ---
+
+          ### Installing
+
+          \`\`\`sh
+          brew tap khatri-viren/sanepeek https://github.com/khatri-viren/sanepeek
+          brew install --cask --no-quarantine sanepeek
+          \`\`\`
+
+          Or download the DMG above. Because SanePeek is signed ad-hoc rather than notarized,
+          macOS will say it cannot verify the developer on first launch — open
+          **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
+          The Homebrew route skips that step."
+
+      - name: Bump the Homebrew cask
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA=$(shasum -a 256 "${{ steps.package.outputs.dmg }}" | cut -d' ' -f1)
+
+          # The tag checkout is detached, so land the bump on main rather than nowhere.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+
+          # BSD sed on the macOS runner needs the empty -i argument.
+          sed -i '' -E "s/^  version \".*\"$/  version \"${VERSION}\"/" Casks/sanepeek.rb
+          sed -i '' -E "s/^  sha256 \".*\"$/  sha256 \"${SHA}\"/" Casks/sanepeek.rb
+
+          if git diff --quiet Casks/sanepeek.rb; then
+            echo "Cask already current, nothing to bump."
+            exit 0
+          fi
+
+          git commit -m "chore: bump cask to ${VERSION}" Casks/sanepeek.rb
+          git push origin main
