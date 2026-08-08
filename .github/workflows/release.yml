@@ -173,19 +173,27 @@ jobs:
             --title "SanePeek ${VERSION}" \
             --generate-notes
 
-          GENERATED=$(gh release view "v${VERSION}" --json body --jq .body)
+          gh release view "v${VERSION}" --json body --jq .body > /tmp/release-notes.md
 
-          gh release edit "v${VERSION}" --notes "${GENERATED}
+          # Appended via a *single-quoted* heredoc, not a double-quoted --notes string: bash
+          # still runs command substitution inside "..." even when it's an argument value, so
+          # the backticks below previously executed `brew trust` and `brew install --cask
+          # --no-quarantine sanepeek` for real on the runner instead of staying literal
+          # Markdown — harmless here since both are fixed, non-attacker-controlled strings, but
+          # real wasted work and a real correctness bug (the runner's brew rejected the removed
+          # --no-quarantine flag, which is why past release notes read like garbled brew output
+          # instead of a code block). A single-quoted heredoc disables all interpolation.
+          cat >> /tmp/release-notes.md <<'NOTES'
 
           ---
 
           ### Installing
 
-          \`\`\`sh
+          ```sh
           brew tap khatri-viren/sanepeek https://github.com/khatri-viren/sanepeek
           brew trust --cask khatri-viren/sanepeek/sanepeek
           brew install --cask sanepeek
-          \`\`\`
+          ```
 
           (On Homebrew versions without `brew trust`, skip that line and run
           `brew install --cask --no-quarantine sanepeek` instead.)
@@ -193,7 +201,10 @@ jobs:
           Or download the DMG above. Because SanePeek is signed ad-hoc rather than notarized,
           macOS will say it cannot verify the developer on first launch — open
           **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
-          The Homebrew route skips that step."
+          The Homebrew route skips that step.
+          NOTES
+
+          gh release edit "v${VERSION}" --notes-file /tmp/release-notes.md
 
       - name: Bump the Homebrew cask
         env:
