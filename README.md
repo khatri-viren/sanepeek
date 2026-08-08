@@ -136,6 +136,17 @@ git push --tags
    The workflow publishes `appcast.xml` there, and `SUFeedURL` points at it. Sparkle polls
    that one URL forever, so it must not move.
 
+4. **`CASK_PUSH_TOKEN` secret.** `main` is protected by a ruleset, and the cask bump step
+   pushes to it. `GITHUB_TOKEN` cannot get through: the only bypass actor is the repository
+   owner, and GitHub refuses to add the Actions app as a bypass actor on a personal repo
+   (`Actor GitHub Actions integration must be part of the ruleset source or owner
+   organization`). Create a fine-grained PAT limited to this repository with
+   **Contents: Read and write**, and store it as `CASK_PUSH_TOKEN`. Pushing as the owner
+   bypasses the ruleset.
+
+   Without it the release still publishes; only the cask bump is skipped, with a warning,
+   leaving Homebrew users on the previous version.
+
 Until `SPARKLE_PRIVATE_KEY` is set the workflow still builds and publishes the DMG; it just
 skips the appcast and logs a warning, so existing users won't be offered the update.
 

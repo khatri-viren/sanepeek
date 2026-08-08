@@ -193,9 +193,18 @@ jobs:
 
       - name: Bump the Homebrew cask
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Not GITHUB_TOKEN: main is protected by a ruleset whose only bypass actor is the
+          # repository owner, and github-actions[bot] cannot be added to that list on a
+          # personal repo — GitHub rejects the Actions app as a bypass actor outside an
+          # organization. A fine-grained PAT pushes as the owner, who does bypass.
+          CASK_PUSH_TOKEN: ${{ secrets.CASK_PUSH_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "${CASK_PUSH_TOKEN:-}" ]; then
+            echo "::warning::CASK_PUSH_TOKEN is not set — skipping the cask bump. Homebrew will keep serving the previous version until Casks/sanepeek.rb is updated by hand."
+            exit 0
+          fi
+
           VERSION="${{ steps.version.outputs.version }}"
           SHA=$(shasum -a 256 "${{ steps.package.outputs.dmg }}" | cut -d' ' -f1)
 
@@ -215,4 +224,9 @@ jobs:
           fi
 
           git commit -m "chore: bump cask to ${VERSION}" Casks/sanepeek.rb
-          git push origin main
+
+          # actions/checkout persists a GITHUB_TOKEN Authorization header for github.com,
+          # and that header wins over credentials in the push URL — so the push would still
+          # go out as the bot and be rejected. Drop it before pushing with the PAT.
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git push "https://x-access-token:${CASK_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
