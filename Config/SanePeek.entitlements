@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Without a paid Developer ID the app and Sparkle.framework are both signed
+	     ad-hoc (see release.yml), and ad-hoc signatures carry no Team ID at all.
+	     Hardened runtime's library validation treats "no Team ID" on either side
+	     as a mismatch, so dyld refuses to load Sparkle and the app dies on launch
+	     for every user. Disabling library validation is the standard escape hatch
+	     for ad-hoc-signed apps that embed separately-signed frameworks. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>
