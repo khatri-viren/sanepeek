@@ -34,22 +34,38 @@ struct SMCSensorKeysTests {
         #expect(SMCSensorKeys.parse(sensorProperty: "Tp2") == [])
     }
 
-    @Test("Classifies the real keys this Mac publishes")
+    @Test("Classifies the real keys this Mac publishes, once rewritten to live variants")
     func classifiesDiscoveredKeys() {
         let keys = SMCSensorKeys.parse(sensorProperty: Self.m1SensorBlob)
+            .map(SMCSensorKeys.instantaneousKey(for:))
         let cpu = keys.filter { SMCSensorKeys.component(for: $0) == .cpu }
         let gpu = keys.filter { SMCSensorKeys.component(for: $0) == .gpu }
 
-        // Seven Tp* performance-core sensors plus the Te3z efficiency-core sensor.
+        // Seven Tp* sensors plus the Te3 efficiency-core one.
         #expect(cpu.count == 8)
-        #expect(gpu == ["tGAM"])
+        #expect(cpu.allSatisfy { $0.hasSuffix("a") })
+        // `tGAM` is deliberately not treated as a GPU sensor — it reports whole numbers only,
+        // so it is a margin register rather than a die temperature.
+        #expect(gpu.isEmpty)
+    }
+
+    @Test("The advertised z/b/x variants are rewritten to the live a variant")
+    func rewritesToInstantaneousVariant() {
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tp3z") == "Tp3a")
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tp3x") == "Tp3a")
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tp3b") == "Tp3a")
+        // Already live, or not part of the suffixed family — left alone.
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tp3a") == "Tp3a")
+        #expect(SMCSensorKeys.instantaneousKey(for: "TC0P") == "TC0P")
+        #expect(SMCSensorKeys.instantaneousKey(for: "TG0D") == "TG0D")
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tp3") == "Tp3")
     }
 
     @Test("Non-temperature and non-die sensors are excluded, not misfiled as CPU")
     func excludesUnrelatedSensors() {
-        // `mTPL` is a power limit, not a temperature; the rest are real sensors this app
-        // deliberately does not surface on the Temperature card.
-        for key in ["mTPL", "Ts5z", "Ta1z", "TB0T", "TW0P"] {
+        // `mTPL` is a power limit and `tGAM` an integer-valued margin register, not
+        // temperatures; the rest are real sensors this app deliberately does not surface.
+        for key in ["mTPL", "tGAM", "Ts5a", "Ta1a", "TB0T", "TW0P"] {
             #expect(SMCSensorKeys.component(for: key) == nil, "\(key) should be unclassified")
         }
     }

@@ -46,6 +46,23 @@ nonisolated enum SMCSensorKeys {
         return keys
     }
 
+    /// Rewrites a discovered sensor key to the variant holding the *live* reading.
+    ///
+    /// Each sensor exists in four variants — `Tp3a`, `Tp3b`, `Tp3x`, `Tp3z` — and the
+    /// `smctempsensor0` node advertises the `z` one. That is not the current temperature.
+    /// Measured on 2026-08-08 across a load spike and cool-down: `Tp3z` is *always* exactly
+    /// `Tp3x + 12.00` and `Tp3b` *always* exactly `Tp3a + 7.40`, so `b` and `z` are derived
+    /// offset registers; `x`/`z` are additionally noisy and do not track load. Only `a` tracks
+    /// load smoothly and agrees with an independent reader — `Te3a` read 35.93 against Stats'
+    /// 35.9 for the same sensor, while the `z` variant this originally shipped with reported
+    /// 81.2 °C against a true 41.0 °C.
+    static func instantaneousKey(for key: String) -> String {
+        guard key.count == keyLength, let suffix = key.last, "bxz".contains(suffix) else {
+            return key
+        }
+        return String(key.dropLast()) + "a"
+    }
+
     /// Maps a sensor key to the component it measures, or nil for sensors this app does not
     /// surface (battery `TB*`, Wi-Fi `TW*`, ambient/skin `Ta*`/`Ts*`, and the non-temperature
     /// entries such as `mTPL` that share the same property blob).
@@ -54,8 +71,12 @@ nonisolated enum SMCSensorKeys {
             return nil
         }
 
-        // Apple Silicon publishes the GPU as `tGAM`; Intel uses the `TG` family.
-        if key == "tGAM" || key.hasPrefix("TG") {
+        // Intel exposes real fractional GPU die sensors as the `TG` family. Apple Silicon has
+        // no validated equivalent: `tGAM` looks like one and is the key most correlated with
+        // GPU load, but it reports whole numbers only (49, 50, 51, … 86) where every genuine
+        // sensor here reports fractions, so it is a margin/limit register rather than a
+        // temperature. Reporting nothing beats reporting a number that cannot be corroborated.
+        if key.hasPrefix("TG") {
             return .gpu
         }
 
@@ -108,10 +129,10 @@ nonisolated enum SMCSensorKeys {
     /// Apple Silicon and Intel CPU/GPU keys; unreadable ones are dropped during probing, so
     /// listing a key that does not exist on this machine costs nothing at runtime.
     static let fallbackKeys: [String] = [
-        "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0b", "Tp0f", "Tp0j", "Tp0n",
-        "Tp2z", "Tp3z", "Tp4z", "Tp5z", "Tp7z", "Tp8z", "Tp9z",
-        "Te05", "Te0S", "Te3z",
+        "Tp01", "Tp05", "Tp09", "Tp0D",
+        "Tp2a", "Tp3a", "Tp4a", "Tp5a", "Tp7a", "Tp8a", "Tp9a",
+        "Te0a", "Te3a", "Te05", "Te0S",
         "TC0P", "TC0D", "TC0E", "TC0F", "TCAD",
-        "tGAM", "TG0D", "TG0P",
+        "TG0D", "TG0P",
     ]
 }

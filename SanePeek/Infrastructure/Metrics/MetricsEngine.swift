@@ -56,6 +56,10 @@ actor MetricsEngine {
     private var publishedGPU: GPUSnapshot?
     private var publishedTemperature: TemperatureSnapshot?
 
+    /// When temperature was last sampled, so it can keep its own cadence while riding the fast
+    /// loop's wakeup. `-infinity` makes the first tick always due.
+    private var lastTemperatureMonotonicSeconds: TimeInterval = -Double.infinity
+
     private var lastPublishedMonotonicSeconds: TimeInterval = -Double.infinity
     private var hasPublishedFirstSnapshot = false
     private var launchSignpostState: OSSignpostIntervalState?
@@ -193,16 +197,22 @@ actor MetricsEngine {
             let tick = clock.now()
             let cycleState = signposter.beginInterval("PollingCycle.fast")
 
+            // Decided synchronously, before the concurrent reads, so the due-check and its
+            // bookkeeping cannot interleave with another tick.
+            let temperatureIsDue = claimTemperatureSlot(at: tick)
+
             async let cpuResult = readIfActive(.cpu) { await self.readCPU(at: tick) }
             async let memoryResult = readIfActive(.memory) { await self.readMemory(at: tick) }
             async let networkResult = readIfActive(.network) { await self.readNetwork(at: tick) }
             async let gpuResult = readIfActive(.gpu) { await self.readGPU(at: tick) }
+            async let temperatureResult = readTemperatureIfDue(temperatureIsDue, at: tick)
 
             updateFastMetrics(
                 cpu: await cpuResult,
                 memory: await memoryResult,
                 network: await networkResult,
                 gpu: await gpuResult,
+                temperature: await temperatureResult,
                 at: tick
             )
             publish(at: tick)
@@ -223,12 +233,10 @@ actor MetricsEngine {
 
             async let storageResult = readIfActive(.storage) { await self.readStorage(at: tick) }
             async let batteryResult = readIfActive(.battery) { await self.readBattery(at: tick) }
-            async let temperatureResult = readIfActive(.temperature) { await self.readTemperature(at: tick) }
 
             updateSlowMetrics(
                 storage: await storageResult,
                 battery: await batteryResult,
-                temperature: await temperatureResult,
                 at: tick
             )
             publish(at: tick)
@@ -249,6 +257,30 @@ actor MetricsEngine {
     private func readIfActive<T>(_ metric: MetricKind, _ read: () async -> MetricResult<T>) async -> MetricResult<T>? {
         guard activeMetrics.contains(metric) else { return nil }
         return await read()
+    }
+
+    /// Temperature rides the fast loop's existing wakeup instead of owning a timer, but samples
+    /// on its own slower cadence. Reading it every fast tick would cost ~0.21% CPU at 1 Hz —
+    /// about the app's whole idle budget again — because each sample is nine synchronous SMC
+    /// round trips. Reusing the fast wakeup keeps the idle wakeup count unchanged.
+    ///
+    /// Returns whether this tick owns the next sample, marking the slot as taken if so.
+    private func claimTemperatureSlot(at tick: MetricTimestamp) -> Bool {
+        guard activeMetrics.contains(.temperature) else { return false }
+        let interval = cadencePolicy.interval(for: .temperature)
+        guard tick.monotonicSeconds - lastTemperatureMonotonicSeconds >= interval else {
+            return false
+        }
+        lastTemperatureMonotonicSeconds = tick.monotonicSeconds
+        return true
+    }
+
+    private func readTemperatureIfDue(
+        _ isDue: Bool,
+        at tick: MetricTimestamp
+    ) async -> MetricResult<TemperatureSnapshot>? {
+        guard isDue else { return nil }
+        return await readTemperature(at: tick)
     }
 
     // MARK: - Reader cost signposts
@@ -302,6 +334,7 @@ actor MetricsEngine {
         memory memoryResult: MetricResult<MemorySnapshot>?,
         network networkResult: MetricResult<NetworkSnapshot>?,
         gpu gpuResult: MetricResult<GPUSnapshot>?,
+        temperature temperatureResult: MetricResult<TemperatureSnapshot>?,
         at tick: MetricTimestamp
     ) {
         if let cpuResult {
@@ -348,20 +381,6 @@ actor MetricsEngine {
                 history[.gpuUtilization]?.append(MetricSample(timestamp: tick, value: utilization))
             }
         }
-    }
-
-    private func updateSlowMetrics(
-        storage storageResult: MetricResult<StorageSnapshot>?,
-        battery batteryResult: MetricResult<BatterySnapshot>?,
-        temperature temperatureResult: MetricResult<TemperatureSnapshot>?,
-        at tick: MetricTimestamp
-    ) {
-        if let storageResult {
-            publishedStorage = mergedStorage(storageResult, at: tick)
-        }
-        if let batteryResult {
-            publishedBattery = mergedBattery(batteryResult, at: tick)
-        }
         if let temperatureResult {
             publishedTemperature = mergedTemperature(temperatureResult, at: tick)
             if case .available = temperatureResult {
@@ -370,6 +389,19 @@ actor MetricsEngine {
                     history[.temperatureHottestCelsius]?.append(MetricSample(timestamp: tick, value: hottest))
                 }
             }
+        }
+    }
+
+    private func updateSlowMetrics(
+        storage storageResult: MetricResult<StorageSnapshot>?,
+        battery batteryResult: MetricResult<BatterySnapshot>?,
+        at tick: MetricTimestamp
+    ) {
+        if let storageResult {
+            publishedStorage = mergedStorage(storageResult, at: tick)
+        }
+        if let batteryResult {
+            publishedBattery = mergedBattery(batteryResult, at: tick)
         }
     }
 

@@ -69,6 +69,21 @@ at roughly **0.25% average CPU** and a **24 MB** physical footprint, measured ov
 closed menu bar popup are fully inert — no rendering work happens for content the user
 can't see — and polling pauses outright when the display sleeps or the session locks.
 
+With two menu bar items enabled (CPU + Temperature), a head-to-head against
+[Stats](https://github.com/exelban/stats) — both Release builds, both idle, sampled for
+3 minutes (36 samples at 5s intervals) on the same machine — looked like this:
+
+| Metric | Stats | SanePeek |
+|---|---|---|
+| CPU (avg) | 6.75% | 0.44% — **15.3× less** |
+| Memory (avg RSS) | 250.0 MB | 26.2 MB — **9.5× less** |
+| Energy impact (avg) | 7.33 | 0.30 — **24.4× less** |
+
+Numbers were captured with `top -l 36 -s 5` for CPU/memory and `sudo powermetrics
+--samplers tasks --show-process-energy` for energy impact. Each app's widget/helper
+process was excluded so the comparison is core menu-bar process to core menu-bar
+process.
+
 ## License
 
 SanePeek is available under the MIT license. See [LICENSE](LICENSE) for details.

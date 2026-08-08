@@ -231,6 +231,9 @@ struct MetricsEngineTests {
 
     @Test("Temperature reads merge into the snapshot on the slow loop and record the hottest of CPU/GPU in history")
     func temperatureMergesAndRecordsHottestInHistory() async {
+        // Temperature rides the fast loop but samples on its own floored cadence, so this drives
+        // the fast scheduler and advances the clock past that floor between ticks.
+        let clock = SteppingClock()
         let fastScheduler = StepScheduler()
         let slowScheduler = StepScheduler()
         let temperatureReader = QueueingReader<TemperatureSnapshot>(
@@ -247,25 +250,73 @@ struct MetricsEngineTests {
             batteryReader: QueueingReader(results: [.available(BatterySnapshot(timestamp: .zero, percentage: 1))]),
             gpuReader: QueueingReader(results: [.available(GPUSnapshot(timestamp: .zero, utilization: 0.1))]),
             temperatureReader: temperatureReader,
+            clock: clock,
             fastScheduler: fastScheduler,
             slowScheduler: slowScheduler
         )
 
         await engine.start()
-        await slowScheduler.waitUntilIntervalsCount(1)
+        await fastScheduler.waitUntilIntervalsCount(1)
         let first = await engine.currentSnapshot()
         #expect(first.temperature?.availability == .available)
         #expect(first.temperature?.cpuCelsius == 52)
         #expect(first.temperature?.gpuCelsius == 46)
         #expect(await engine.history(for: .temperatureHottestCelsius).map(\.value) == [52])
 
-        await slowScheduler.advance()
-        await slowScheduler.waitUntilIntervalsCount(2)
+        await clock.advance(by: CadencePolicy.temperatureMinimumInterval)
+        await fastScheduler.advance()
+        await fastScheduler.waitUntilIntervalsCount(2)
         let second = await engine.currentSnapshot()
         #expect(second.temperature?.availability == .unavailable(.unsupported))
         #expect(second.temperature?.cpuCelsius == 52)
         #expect(second.temperature?.gpuCelsius == 46)
         #expect(await engine.history(for: .temperatureHottestCelsius).map(\.value) == [52])
+
+        await engine.stop()
+    }
+
+    @Test("Temperature skips fast ticks that fall inside its own cadence")
+    func temperatureSamplesOnItsOwnCadenceWithinTheFastLoop() async {
+        // At the 1 s refresh rate the fast loop ticks every second, but temperature is floored
+        // to `temperatureMinimumInterval`, so it must skip roughly every other tick rather than
+        // paying nine SMC round trips each time.
+        let clock = SteppingClock()
+        let fastScheduler = StepScheduler()
+        let temperatureReader = QueueingReader<TemperatureSnapshot>(
+            results: Array(
+                repeating: .available(TemperatureSnapshot(timestamp: .zero, cpuCelsius: 52, gpuCelsius: 46)),
+                count: 10
+            )
+        )
+        let engine = MetricsEngine(
+            cpuReader: QueueingReader(results: Array(repeating: .available(CPUSnapshot(timestamp: .zero, utilization: 0.1)), count: 10)),
+            memoryReader: QueueingReader(results: Array(repeating: .available(MemorySnapshot(timestamp: .zero, usedBytes: 1)), count: 10)),
+            storageReader: QueueingReader(results: [.available(StorageSnapshot(timestamp: .zero, usedBytes: 1))]),
+            networkReader: QueueingReader(results: Array(repeating: .available(NetworkSnapshot(timestamp: .zero, downloadBytesPerSecond: 1)), count: 10)),
+            batteryReader: QueueingReader(results: [.available(BatterySnapshot(timestamp: .zero, percentage: 1))]),
+            gpuReader: QueueingReader(results: Array(repeating: .available(GPUSnapshot(timestamp: .zero, utilization: 0.1)), count: 10)),
+            temperatureReader: temperatureReader,
+            clock: clock,
+            fastScheduler: fastScheduler,
+            slowScheduler: StepScheduler()
+        )
+
+        await engine.start()
+        await fastScheduler.waitUntilIntervalsCount(1)
+        // The first tick is always due.
+        #expect(await temperatureReader.callCount == 1)
+
+        // One second later the fast loop ticks again, but temperature is not yet due.
+        await clock.advance(by: 1)
+        await fastScheduler.advance()
+        await fastScheduler.waitUntilIntervalsCount(2)
+        #expect(await temperatureReader.callCount == 1)
+
+        // Two seconds in, it is.
+        await clock.advance(by: 1)
+        await fastScheduler.advance()
+        await fastScheduler.waitUntilIntervalsCount(3)
+        #expect(await temperatureReader.callCount == 2)
 
         await engine.stop()
     }
@@ -283,6 +334,12 @@ struct MetricsEngineTests {
             networkReader: QueueingReader(results: Array(repeating: .available(NetworkSnapshot(timestamp: .zero, downloadBytesPerSecond: 1)), count: 10)),
             batteryReader: QueueingReader(results: [.available(BatterySnapshot(timestamp: .zero, percentage: 1))]),
             gpuReader: QueueingReader(results: Array(repeating: .available(GPUSnapshot(timestamp: .zero, utilization: 0.1)), count: 10)),
+            // Stubbed explicitly: temperature now samples inside the fast loop, and the default
+            // reader would put a real multi-millisecond SMC round trip into this timing-sensitive
+            // test.
+            temperatureReader: QueueingReader(
+                results: Array(repeating: .unavailable(.unsupported), count: 10)
+            ),
             clock: clock,
             fastScheduler: fastScheduler,
             slowScheduler: slowScheduler,
@@ -294,13 +351,19 @@ struct MetricsEngineTests {
         await engine.start()
 
         var timestamps: [TimeInterval] = []
-        for i in 0..<5 {
+        let tickCount = 5
+        for i in 0..<tickCount {
             await fastScheduler.waitUntilIntervalsCount(i + 1)
             if let snapshot = await iterator.next() {
                 timestamps.append(snapshot.timestamp.monotonicSeconds)
             }
-            await clock.advance(by: 1)
-            await fastScheduler.advance()
+            // Deliberately not released after the final tick: `advance()` frees a loop iteration
+            // that nothing then waits for, so a trailing one would race the assertions below and
+            // could slip an extra sample into the bounded history.
+            if i < tickCount - 1 {
+                await clock.advance(by: 1)
+                await fastScheduler.advance()
+            }
         }
 
         #expect(timestamps == timestamps.sorted())

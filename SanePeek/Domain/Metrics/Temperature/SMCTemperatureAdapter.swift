@@ -48,7 +48,9 @@ nonisolated final class SMCTemperatureAdapter: TemperatureSystemAdapter, @unchec
         }
         self.connection = connection
 
-        let candidates = Self.discoverSensorKeys()
+        // The advertised key names are rewritten to their live-reading variant before use; see
+        // `SMCSensorKeys.instantaneousKey(for:)` for why the advertised ones are wrong.
+        let candidates = Self.discoverSensorKeys().map(SMCSensorKeys.instantaneousKey(for:))
         sensors = candidates.compactMap { key -> Sensor? in
             guard let component = SMCSensorKeys.component(for: key),
                   let code = Self.fourCharCode(key),

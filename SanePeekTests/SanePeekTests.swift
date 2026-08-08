@@ -46,6 +46,12 @@ struct SanePeekTests {
         #expect(twoSeconds.interval(for: .storage) == 30)
         #expect(fiveSeconds.interval(for: .battery) == 30)
 
+        // Temperature follows the refresh rate but is floored, because each sample is nine
+        // synchronous SMC round trips and 1 Hz would cost about the app's whole idle budget.
+        #expect(oneSecond.interval(for: .temperature) == CadencePolicy.temperatureMinimumInterval)
+        #expect(twoSeconds.interval(for: .temperature) == 2)
+        #expect(fiveSeconds.interval(for: .temperature) == 5)
+
         let scheduler: any MetricScheduler = ImmediateMetricScheduler()
         try await scheduler.wait(for: 0)
     }
