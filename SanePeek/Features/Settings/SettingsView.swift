@@ -7,6 +7,9 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var settingsStore: SettingsStore
+    /// Owned by the app, not this view: recreating the updater would restart it and drop
+    /// any check already running, and Settings is opened and closed constantly.
+    let updater: UpdaterController
 
     var body: some View {
         Form {
@@ -59,6 +62,19 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("settings.launchAtLoginStatus")
                 }
+            }
+
+            Section("Updates") {
+                LabeledContent("Version", value: updater.currentVersion)
+                    .accessibilityIdentifier("settings.version")
+
+                Button("Check for Updates…") {
+                    updater.checkForUpdates()
+                }
+                // Sparkle refuses overlapping checks, so this tracks its own gate rather
+                // than letting the button look live while a check is already running.
+                .disabled(!updater.canCheckForUpdates)
+                .accessibilityIdentifier("settings.checkForUpdates")
             }
         }
         .formStyle(.grouped)
@@ -184,5 +200,8 @@ private extension TemperatureUnit {
 }
 
 #Preview {
-    SettingsView(settingsStore: SettingsStore(defaults: UserDefaults(suiteName: "preview.settings") ?? .standard))
+    SettingsView(
+        settingsStore: SettingsStore(defaults: UserDefaults(suiteName: "preview.settings") ?? .standard),
+        updater: UpdaterController()
+    )
 }

@@ -9,6 +9,7 @@ import SwiftUI
 struct SanePeekApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState: AppState
+    @State private var updater = UpdaterController()
 
     init() {
         self.init(dependencies: .forLaunch())
@@ -26,7 +27,7 @@ struct SanePeekApp: App {
         .defaultSize(width: 1100, height: 900)
 
         Settings {
-            SettingsView(settingsStore: appState.settingsStore)
+            SettingsView(settingsStore: appState.settingsStore, updater: updater)
                 .preferredColorScheme(appState.settingsStore.appearance.colorScheme)
         }
 
