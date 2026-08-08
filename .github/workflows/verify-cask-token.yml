@@ -1,0 +1,46 @@
+# TEMPORARY. Proves CASK_PUSH_TOKEN is present, valid, and able to push, without a real
+# release and without revealing the token. Delete once it has passed.
+name: Verify cask token
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check CASK_PUSH_TOKEN
+        env:
+          T: ${{ secrets.CASK_PUSH_TOKEN }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "${T:-}" ]; then
+            echo "::error::CASK_PUSH_TOKEN is empty or unset — the cask bump would be skipped."
+            exit 1
+          fi
+          echo "secret is present (${#T} characters)"
+
+          # Only derived facts are printed, never the token.
+          CODE=$(curl -s -o /tmp/repo.json -w '%{http_code}' \
+            -H "Authorization: Bearer $T" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}")
+
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Token cannot read ${GITHUB_REPOSITORY} (HTTP $CODE). Wrong repo scope, or expired."
+            exit 1
+          fi
+
+          PUSH=$(jq -r '.permissions.push' /tmp/repo.json)
+          echo "repo access : ok"
+          echo "push rights : $PUSH"
+
+          if [ "$PUSH" != "true" ]; then
+            echo "::error::Token lacks push (Contents: Read and write). The cask bump would be rejected."
+            exit 1
+          fi
+
+          LOGIN=$(curl -s -H "Authorization: Bearer $T" https://api.github.com/user | jq -r '.login // "unknown"')
+          echo "acts as     : $LOGIN"
+          echo "Ruleset bypass depends on this being the repository owner."
