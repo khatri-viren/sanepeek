@@ -214,10 +214,11 @@ nonisolated enum MetricFixtures {
         )
     }
 
-    /// This is what the real live app always shows today: no compliant, sandbox-safe
-    /// data source exists for CPU/GPU temperature (see `LiveTemperatureReader`), so
-    /// this fixture verifies the "not supported on this Mac" card state renders
-    /// correctly rather than showing stale or misleading numbers.
+    /// No longer what the live app shows — `SMCTemperatureAdapter` reads real die
+    /// temperatures in the direct-download build. This fixture stays because that path is
+    /// unavailable in a sandboxed build and on Macs that expose no readable sensor, and the
+    /// "not supported on this Mac" card state still has to render correctly rather than
+    /// showing stale or misleading numbers.
     static func temperatureUnsupported(at timestamp: MetricTimestamp = .zero) -> MetricsSnapshot {
         let baseline = dashboard(at: timestamp)
         return MetricsSnapshot(
