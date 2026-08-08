@@ -165,6 +165,17 @@ final class AppState {
     @ObservationIgnored
     private nonisolated(unsafe) var displayAvailabilityObservers: [NSObjectProtocol] = []
 
+    /// Held only while `recomputePollingState()` wants full coverage (popup or dashboard open).
+    /// `LSUIElement` accessory apps are still subject to App Nap even while a `MenuBarExtra`
+    /// popup is on screen — it doesn't register as an "actively in use" window the way a normal
+    /// one does — and App Nap throttles `Task.sleep`-driven timers, which silently stretches the
+    /// fast loop's real cadence past its nominal 1s interval. Since every history buffer evicts
+    /// samples on wall-clock age alone, a stretched cadence permanently caps how full the chart
+    /// gets rather than being a transient blip it later catches up from. This activity token is
+    /// the standard opt-out: it tells the OS this process is doing user-visible work right now.
+    @ObservationIgnored
+    private nonisolated(unsafe) var liveViewActivity: NSObjectProtocol?
+
     init(dependencies: AppDependencies = .live) {
         self.dependencies = dependencies
         let settingsStore = dependencies.makeSettingsStore()
@@ -185,6 +196,9 @@ final class AppState {
     deinit {
         displayAvailabilityObservers.forEach(NotificationCenter.default.removeObserver)
         displayAvailabilityObservers.forEach(DistributedNotificationCenter.default().removeObserver)
+        if let liveViewActivity {
+            ProcessInfo.processInfo.endActivity(liveViewActivity)
+        }
     }
 
     /// Screen sleep is a workspace notification; screen lock has no public API and is
@@ -324,6 +338,8 @@ final class AppState {
         let shouldPoll = !isDisplayUnavailable && (wantsFullCoverage || !enabledMenuBarMetrics.isEmpty)
         let cadence = wantsFullCoverage ? settingsStore.cadencePolicy : Self.backgroundCadencePolicy
 
+        updateLiveViewActivity(isActive: wantsFullCoverage)
+
         Task {
             guard shouldPoll else {
                 await metricsEngine.pause()
@@ -332,6 +348,29 @@ final class AppState {
             await metricsEngine.setActiveMetrics(activeMetrics)
             await metricsEngine.updateCadence(cadence)
             await metricsEngine.resume()
+        }
+    }
+
+    /// Begins/ends a `ProcessInfo` activity token spanning exactly the time the popup or
+    /// dashboard is open. `LSUIElement` accessory apps remain subject to App Nap even with a
+    /// `MenuBarExtra` popup on screen, and App Nap throttles `Task.sleep`-driven timers — which
+    /// stretches the fast loop's real cadence past its nominal interval without erroring. Since
+    /// `MetricRingBuffer` evicts purely on wall-clock age, a stretched cadence permanently caps
+    /// how full the history chart gets rather than being a blip it later recovers from; this
+    /// token tells the OS this process is doing user-visible work so its timers stay on time.
+    private func updateLiveViewActivity(isActive: Bool) {
+        if isActive {
+            guard liveViewActivity == nil else { return }
+            // `.userInitiatedAllowingIdleSystemSleep` exempts this process from App Nap without
+            // also overriding the system's own sleep policy — the dashboard can stay open
+            // indefinitely without that keeping the Mac itself awake.
+            liveViewActivity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Live metrics view open"
+            )
+        } else if let activity = liveViewActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            liveViewActivity = nil
         }
     }
 }
