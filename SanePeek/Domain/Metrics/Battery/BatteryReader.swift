@@ -169,7 +169,7 @@ nonisolated struct IOKitBatterySystemAdapter: BatterySystemAdapter {
         static let powerSourceState = "Power Source State"
         static let timeToEmpty = "Time to Empty"
         static let timeToFullCharge = "Time to Full Charge"
-        static let transportType = "Transport Type"
+        static let type = "Type"
     }
 
     func read(at timestamp: MetricTimestamp) -> MetricResult<BatterySystemSample> {
@@ -204,8 +204,8 @@ nonisolated struct IOKitBatterySystemAdapter: BatterySystemAdapter {
             }
 
             let dictionary = description as NSDictionary
-            guard let transportType = dictionary[Key.transportType] as? String,
-                  transportType == "InternalBattery"
+            guard let type = dictionary[Key.type] as? String,
+                  type == "InternalBattery"
             else {
                 continue
             }
