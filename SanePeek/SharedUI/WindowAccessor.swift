@@ -24,3 +24,41 @@ struct WindowAccessor: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
+
+/// Forces the hosting `NSWindow`'s appearance, for the windows `.preferredColorScheme` can't
+/// reach. `MenuBarExtra(.window)` is one: its content honours no color scheme preference, so
+/// the popups stayed light whatever the user picked in Settings. Setting `NSWindow.appearance`
+/// works because it drives `effectiveAppearance`, which selects both the variant of the root
+/// Liquid Glass the system draws behind the popup and the color scheme SwiftUI resolves
+/// `.primary`/`.secondary` against — so the panel and its text stay in step.
+///
+/// Unlike `WindowAccessor` this reapplies in `updateNSView`, so flipping the setting restyles a
+/// popup that already exists rather than only ones opened afterwards.
+struct WindowAppearanceAccessor: NSViewRepresentable {
+    let colorScheme: ColorScheme?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            apply(to: view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        apply(to: nsView)
+    }
+
+    private func apply(to view: NSView) {
+        // `nil` means "follow the system", which is what a nil `appearance` already does.
+        view.window?.appearance = appearanceName.map(NSAppearance.init(named:)) ?? nil
+    }
+
+    private var appearanceName: NSAppearance.Name? {
+        switch colorScheme {
+        case .dark: .darkAqua
+        case .light: .aqua
+        default: nil
+        }
+    }
+}

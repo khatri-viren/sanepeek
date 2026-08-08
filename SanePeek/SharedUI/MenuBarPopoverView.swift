@@ -37,8 +37,6 @@ struct MenuBarPopoverView: View {
     /// Wide enough for the longest title/value pair ("Temperature" + "-40.0 °C") to sit on
     /// one line — at a narrower width "Temperature" wrapped mid-word.
     private static let rowListWidth: CGFloat = 210
-    /// Rounder than the system's own menu bar popover corner (~14pt).
-    private static let windowCornerRadius: CGFloat = 24
 
     init(appState: AppState, kind: MetricKind) {
         self.appState = appState
@@ -107,7 +105,20 @@ struct MenuBarPopoverView: View {
         }
         .padding(16)
         .frame(width: 560)
-        .background(WindowAccessor(onResolve: roundWindowCorners))
+        // Deliberately no background: `.menuBarExtraStyle(.window)` already hosts this in a
+        // window whose root is Liquid Glass — SwiftUI's `MenuBarExtraHostingView` wraps the
+        // content in a window-sized `SDFLayer` that draws the panel and its rounded corners.
+        // Adding a `.glassEffect`/material here stacked a second glass on top of that one, and
+        // glass can't sample glass: the inner layer's `CABackdropLayer` read the already
+        // frosted panel instead of the desktop, which is what flattened the popup into an
+        // opaque white slab. Children add no background of their own either.
+        //
+        // Which variant of that root glass the system draws follows the window's appearance —
+        // dark reads as the frosted panel Control Center shows, light as a much milkier one.
+        // `.preferredColorScheme` is silently ignored on `MenuBarExtra(.window)` content, so
+        // the seven popups stayed light whatever the user picked; only the dashboard and
+        // settings scenes honoured the setting. Hence going at the window directly.
+        .background(WindowAppearanceAccessor(colorScheme: appState.settingsStore.appearance.colorScheme))
         .onAppear {
             // The window is reused across openings, so `selectedMetric` still holds whatever
             // was picked last time — reset it, or clicking Memory would reopen on whichever
@@ -131,20 +142,6 @@ struct MenuBarPopoverView: View {
                 dismiss()
             }
         }
-    }
-
-    /// Rounds the popover window itself past the system default.
-    ///
-    /// There is no property to set: on macOS 26 the popup's Liquid Glass background — corner
-    /// arc included — is rendered by an `SDFLayer` the system owns, and the window has no
-    /// `NSVisualEffectView` to restyle. So this clips the window's frame view instead, which
-    /// masks the system's glass to a rounder rect.
-    private func roundWindowCorners(_ window: NSWindow) {
-        guard let frameView = window.contentView?.superview else { return }
-        frameView.wantsLayer = true
-        frameView.layer?.cornerRadius = Self.windowCornerRadius
-        frameView.layer?.cornerCurve = .continuous
-        frameView.layer?.masksToBounds = true
     }
 
     private var rowList: some View {
