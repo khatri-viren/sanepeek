@@ -9,9 +9,10 @@ import SwiftUI
 /// there's one implementation per shape rather than a second, flatter set living here.
 ///
 /// Deliberately draws no background of its own: `MenuBarExtra(.window)` already provides the
-/// popup's Liquid Glass surface, and Apple's guidance is not to layer a second material on top
-/// of glass — content sits directly on it and uses vibrancy-aware `.primary`/`.secondary`
-/// colors so it stays legible in both appearances.
+/// popup's Liquid Glass surface, and glass can't sample glass — a second material layered on
+/// top reads the frosted panel rather than the desktop and flattens the whole popup. So content
+/// sits directly on it and uses vibrancy-aware `.primary`/`.secondary` colors instead, staying
+/// legible in both appearances.
 struct PopoverMetricChartView: View {
     let model: MetricCardModel
     let viewModel: DashboardViewModel
@@ -58,7 +59,16 @@ struct PopoverMetricChartView: View {
         Spacer(minLength: 0)
     }
 
+    @ViewBuilder
     private var content: some View {
+        if model.id == .storage, let detail = model.storageUsageDetail {
+            StorageUsageDetailView(fraction: model.usageFraction, detail: detail, color: model.accentColor, formatter: formatter)
+        } else {
+            regularContent
+        }
+    }
+
+    private var regularContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(model.primaryValue)
                 .font(.system(size: 32, weight: .semibold, design: .rounded))

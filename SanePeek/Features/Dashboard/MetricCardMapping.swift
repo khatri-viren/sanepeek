@@ -200,6 +200,16 @@ nonisolated enum MetricCardMapping {
             }
             return nil
         }()
+        let usageDetail: StorageUsageDetail? = {
+            guard let used = snapshot.usedBytes, let available = snapshot.availableBytes, let total = snapshot.totalBytes else {
+                return nil
+            }
+            return StorageUsageDetail(
+                totalText: formatter.bytes(total),
+                usedText: formatter.bytes(used),
+                freeText: formatter.bytes(available)
+            )
+        }()
 
         return MetricCardModel(
             id: .storage,
@@ -213,6 +223,7 @@ nonisolated enum MetricCardMapping {
             sparklineValues: [],
             levelFraction: usageFraction,
             usageFraction: usageFraction,
+            storageUsageDetail: usageDetail,
             accessibilityLabel: title,
             accessibilityValue: accessibilityValue(primary: primary, secondary: secondary, status: status)
         )
