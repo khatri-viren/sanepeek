@@ -4,11 +4,15 @@
 # an explicit URL for repos not named `homebrew-*`:
 #
 #   brew tap khatri-viren/sanepeek https://github.com/khatri-viren/sanepeek
-#   brew install --cask --no-quarantine sanepeek
+#   brew trust --cask khatri-viren/sanepeek/sanepeek
+#   brew install --cask sanepeek
 #
-# `--no-quarantine` matters here: SanePeek is ad-hoc signed rather than notarized, so
-# without it Gatekeeper quarantines the app and the first launch needs a trip through
-# System Settings. Homebrew skips that when the quarantine attribute is never applied.
+# Trusting the cask matters here: SanePeek is ad-hoc signed rather than notarized, so
+# an untrusted install leaves Gatekeeper to quarantine the app and the first launch
+# needs a trip through System Settings. Trusting it skips that — same effect as the
+# `--no-quarantine` install flag Homebrew removed when it added the tap-trust model;
+# on Homebrew versions predating that model, use `brew install --cask --no-quarantine
+# sanepeek` instead.
 #
 # `version` and `sha256` are rewritten by .github/workflows/release.yml on every release.
 cask "sanepeek" do
@@ -25,7 +29,7 @@ cask "sanepeek" do
     strategy :github_latest
   end
 
-  depends_on macos: ">= :sequoia"
+  depends_on macos: :sequoia
 
   app "SanePeek.app"
 

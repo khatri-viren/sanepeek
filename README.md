@@ -25,16 +25,20 @@ complexity, or resource usage of traditional monitoring tools.
 
 ```sh
 brew tap khatri-viren/sanepeek https://github.com/khatri-viren/sanepeek
-brew install --cask --no-quarantine sanepeek
+brew trust --cask khatri-viren/sanepeek/sanepeek
+brew install --cask sanepeek
 ```
+
+(On Homebrew versions without `brew trust`, skip that line and run
+`brew install --cask --no-quarantine sanepeek` instead.)
 
 Or grab the DMG from [Releases](https://github.com/khatri-viren/sanepeek/releases).
 
 SanePeek is signed ad-hoc rather than notarized, because notarization requires a paid
 Apple Developer Program membership. macOS will therefore say it cannot verify the
 developer the first time you open a downloaded copy: open **System Settings → Privacy &
-Security**, scroll down, and click **Open Anyway**. The `--no-quarantine` Homebrew flag
-above skips that step by never applying the quarantine attribute in the first place.
+Security**, scroll down, and click **Open Anyway**. Trusting the cask above skips that
+step by never applying the quarantine attribute in the first place.
 
 Once installed, SanePeek updates itself through [Sparkle](https://sparkle-project.org) —
 Settings → Updates has the current version and a manual check.

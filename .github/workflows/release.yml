@@ -183,8 +183,12 @@ jobs:
 
           \`\`\`sh
           brew tap khatri-viren/sanepeek https://github.com/khatri-viren/sanepeek
-          brew install --cask --no-quarantine sanepeek
+          brew trust --cask khatri-viren/sanepeek/sanepeek
+          brew install --cask sanepeek
           \`\`\`
+
+          (On Homebrew versions without `brew trust`, skip that line and run
+          `brew install --cask --no-quarantine sanepeek` instead.)
 
           Or download the DMG above. Because SanePeek is signed ad-hoc rather than notarized,
           macOS will say it cannot verify the developer on first launch — open
