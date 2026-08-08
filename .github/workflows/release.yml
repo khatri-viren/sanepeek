@@ -99,17 +99,20 @@ jobs:
             exit 0
           fi
 
-          # Resolved rather than pinned: a hardcoded version 404s the moment Sparkle
-          # publishes a new one, and only the signing tool is being used here.
-          SPARKLE_TAG=$(curl -fsSL https://api.github.com/repos/sparkle-project/Sparkle/releases/latest | jq -r .tag_name)
-          curl -fsSL -o sparkle.tar.xz \
-            "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_TAG}/Sparkle-${SPARKLE_TAG}.tar.xz"
-          mkdir -p sparkle && tar -xf sparkle.tar.xz -C sparkle
+          # Use the tool SwiftPM already fetched for the build rather than downloading a
+          # release: it needs no network (querying api.github.com unauthenticated from a
+          # runner's shared IP gets a 403), and it pins the signer to exactly the Sparkle
+          # version the app links against instead of whatever is newest.
+          SIGN_UPDATE="build/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update"
+          if [ ! -x "$SIGN_UPDATE" ]; then
+            echo "::error::sign_update not found at $SIGN_UPDATE — did the Sparkle package resolve?"
+            exit 1
+          fi
 
           # `-s <key>` is deprecated as insecure; the key goes in on stdin instead so it
           # never lands in the process table or on disk.
           OUTPUT=$(printf '%s' "$SPARKLE_PRIVATE_KEY" \
-            | ./sparkle/bin/sign_update --ed-key-file - "${{ steps.package.outputs.dmg }}")
+            | "$SIGN_UPDATE" --ed-key-file - "${{ steps.package.outputs.dmg }}")
 
           # sign_update emits: sparkle:edSignature="…" length="…"
           echo "attrs=${OUTPUT}" >> "$GITHUB_OUTPUT"
