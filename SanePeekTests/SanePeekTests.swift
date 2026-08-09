@@ -161,6 +161,22 @@ struct SanePeekTests {
         #expect(appState.dependencies.runtime == .preview)
     }
 
+    @Test("Menu bar refresh requests coalesce")
+    @MainActor
+    func menuBarRefreshRequestsCoalesce() {
+        var coalescer = MenuBarRefreshCoalescer()
+
+        let firstRequest = coalescer.schedule()
+        let duplicateRequest = coalescer.schedule()
+        #expect(firstRequest)
+        #expect(!duplicateRequest)
+
+        coalescer.markCompleted()
+
+        let requestAfterCompletion = coalescer.schedule()
+        #expect(requestAfterCompletion)
+    }
+
     @Test("Preview dependencies provide fixture metric snapshots")
     @MainActor
     func previewDependenciesProvideFixtureSnapshots() {

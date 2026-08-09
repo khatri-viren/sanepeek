@@ -12,6 +12,21 @@ nonisolated enum MenuBarPopoverAction: Equatable {
     case none
 }
 
+@MainActor
+struct MenuBarRefreshCoalescer {
+    private(set) var isScheduled = false
+
+    mutating func schedule() -> Bool {
+        guard !isScheduled else { return false }
+        isScheduled = true
+        return true
+    }
+
+    mutating func markCompleted() {
+        isScheduled = false
+    }
+}
+
 nonisolated struct MenuBarPopoverCoordinator {
     private(set) var activeKind: MetricKind?
     private var pendingKind: MetricKind?
@@ -68,6 +83,10 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
     private var coordinator = MenuBarPopoverCoordinator()
     private let popover = NSPopover()
     private var activeSession: (kind: MetricKind, id: UInt64)?
+    /// A dashboard tick updates several observed card properties independently. Queueing one
+    /// observation refresh per property makes the first tick rebuild and rasterize the same
+    /// status item repeatedly, which is especially expensive in an unoptimized Debug build.
+    private var observationRefreshCoalescer = MenuBarRefreshCoalescer()
     /// This is owned by the controller rather than read from `NSPopover.isShown`: a transient
     /// popover can start closing before the next status-button action arrives, but the delegate
     /// has not reported the close yet. Treat it as present until `popoverDidClose` so that click
@@ -133,8 +152,13 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
         withObservationTracking {
             syncStatusItems(for: appState)
         } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observeApplicationState()
+            // Observation callbacks can arrive several times during one dashboard tick. Hop to
+            // the next main-queue turn so all mutations from that tick are coalesced into one
+            // status-item sync instead of repeatedly rendering the same label image.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.observationRefreshCoalescer.schedule() else { return }
+                self.observeApplicationState()
+                self.observationRefreshCoalescer.markCompleted()
             }
         }
     }
