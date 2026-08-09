@@ -9,27 +9,17 @@ import SwiftUI
 /// Each row doubles as a tab: selecting one drives `PopoverMetricChartView` on the right, so
 /// the list and the chart live in one side-by-side popup instead of two separate concepts.
 ///
-/// Reports its own visibility to `AppState` via `onAppear`/`onDisappear`, which temporarily
-/// widens `MetricsEngine`'s active-metric set to all seven for as long as the popup is open.
+/// Its AppKit owner reports visibility to `AppState`; this SwiftUI view is created only while
+/// that one shared popover is presented.
 struct MenuBarPopoverView: View {
     let appState: AppState
-    /// The menu bar item this popup belongs to. Every enabled metric declares its own
-    /// `MenuBarExtra` and therefore its own copy of this view, so the popup opens on the
-    /// metric whose item was actually clicked rather than always on CPU.
+    /// The status item that opened the shared popover. It seeds the first selected metric.
     let kind: MetricKind
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedMetric: MetricKind
-    /// Gates the row list + chart below on whether this popup is actually on screen.
-    /// `MenuBarExtra(.window)` keeps every enabled item's popup content view tree live even
-    /// while closed, so reading `viewModel.card(for:)` unconditionally made this rebuild — full
-    /// history charts included — on every metrics tick regardless of whether the popup was ever
-    /// opened (performance review P0). Local state rather than reusing `appState`'s tracking:
-    /// this view should stop depending on the view model the moment it's closed, without waiting
-    /// on a round-trip through `AppState`.
-    @State private var isOpen = false
 
     /// Mirrors the dashboard's visual grouping (hero cards first, then the generic ones) so
     /// the popup reads consistently with the full dashboard rather than declaration order.
@@ -69,6 +59,7 @@ struct MenuBarPopoverView: View {
                     Image(systemName: "macwindow")
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .help("Open Dashboard")
                 .accessibilityLabel("Open Dashboard")
 
@@ -78,88 +69,87 @@ struct MenuBarPopoverView: View {
                     Image(systemName: "gearshape")
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .help("Settings")
                 .accessibilityLabel("Settings")
             }
 
-            if isOpen {
-                HStack(alignment: .top, spacing: 16) {
-                    rowList
-                        .frame(width: Self.rowListWidth)
+            HStack(alignment: .top, spacing: 16) {
+                rowList
+                    .frame(width: Self.rowListWidth)
 
-                    if let selectedCard = viewModel.card(for: selectedMetric) {
-                        PopoverMetricChartView(
-                            model: selectedCard,
-                            viewModel: viewModel,
-                            formatter: appState.settingsStore.formatter
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
-                }
-                // Keeps the popup's height steady as the selection moves between metrics with
-                // and without a legend row, instead of resizing under the pointer.
-                .frame(height: 260)
-            } else {
-                Color.clear.frame(height: 260)
+                chartStage
             }
+            // Keeps the popup's height steady as the selection moves between metrics with
+            // and without a legend row, instead of resizing under the pointer.
+            .frame(height: 260)
         }
         .padding(16)
         .frame(width: 560)
-        // Deliberately no background: `.menuBarExtraStyle(.window)` already hosts this in a
-        // window whose root is Liquid Glass — SwiftUI's `MenuBarExtraHostingView` wraps the
-        // content in a window-sized `SDFLayer` that draws the panel and its rounded corners.
-        // Adding a `.glassEffect`/material here stacked a second glass on top of that one, and
-        // glass can't sample glass: the inner layer's `CABackdropLayer` read the already
-        // frosted panel instead of the desktop, which is what flattened the popup into an
-        // opaque white slab. Children add no background of their own either.
-        //
-        // Which variant of that root glass the system draws follows the window's appearance —
-        // dark reads as the frosted panel Control Center shows, light as a much milkier one.
-        // `.preferredColorScheme` is silently ignored on `MenuBarExtra(.window)` content, so
-        // the seven popups stayed light whatever the user picked; only the dashboard and
-        // settings scenes honoured the setting. Hence going at the window directly.
+        // The AppKit popover supplies the panel; setting the hosting window's appearance keeps
+        // the panel and SwiftUI foreground colors aligned with the app preference.
         .background(WindowAppearanceAccessor(colorScheme: appState.settingsStore.appearance.colorScheme))
-        .onAppear {
-            // The window is reused across openings, so `selectedMetric` still holds whatever
-            // was picked last time — reset it, or clicking Memory would reopen on whichever
-            // tab the previous session ended on.
-            selectedMetric = kind
-            isOpen = true
-            appState.handlePopupVisibilityChange(isVisible: true, kind: kind)
-        }
-        .onDisappear {
-            isOpen = false
-            appState.handlePopupVisibilityChange(isVisible: false, kind: kind)
-        }
-        // macOS leaves an already-open popup on screen when a *different* menu bar item is
-        // clicked, so each popup closes itself when another one takes over. Dismissing through
-        // the environment action rather than closing the `NSWindow` directly keeps
-        // `MenuBarExtra`'s own presented-state in sync — closing the window behind its back
-        // leaves it believing the popup is still up, so the next click on that item only
-        // toggles the stale flag and appears to do nothing.
-        .onChange(of: appState.frontmostPopupKind) { _, frontmost in
-            if let frontmost, frontmost != kind {
-                dismiss()
-            }
-        }
     }
 
     private var rowList: some View {
-        VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(Self.displayOrder, id: \.self) { kind in
                 if let card = viewModel.card(for: kind) {
                     Button {
-                        selectedMetric = kind
+                        select(kind)
                     } label: {
                         CompactMetricRowView(model: card, isSelected: selectedMetric == kind)
                     }
                     .buttonStyle(.plain)
+                    // The row's visual content includes flexible empty space. Keep the
+                    // button's hit target across the full list width rather than only over
+                    // the icon/title/value glyphs.
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .accessibilityIdentifier("popup.metric.\(kind.rawValue)")
                 }
             }
 
             Spacer(minLength: 0)
         }
     }
+
+    /// Keeps the chart panel anchored while its contents cross-fade/slide between tabs. `.id`
+    /// forces a fresh `PopoverMetricChartView` per metric (rather than an update to the same
+    /// instance), which pairs with `.transition` to animate a real insert/remove instead of a
+    /// data change — the latter is what let Swift Charts' own per-mark animation take over.
+    private var chartStage: some View {
+        ZStack(alignment: .topLeading) {
+            if let selectedCard = viewModel.card(for: selectedMetric) {
+                PopoverMetricChartView(
+                    model: selectedCard,
+                    viewModel: viewModel,
+                    formatter: appState.settingsStore.formatter
+                )
+                .id(selectedMetric)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .transition(chartTransition)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
+    }
+
+    private var chartTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return .asymmetric(
+            insertion: .offset(x: 18).combined(with: .opacity).combined(with: .scale(scale: 0.98)),
+            removal: .offset(x: -18).combined(with: .opacity).combined(with: .scale(scale: 0.98))
+        )
+    }
+
+    private func select(_ kind: MetricKind) {
+        guard kind != selectedMetric else { return }
+        withAnimation(reduceMotion ? .easeInOut(duration: 0.15) : .easeOut(duration: 0.18)) {
+            selectedMetric = kind
+        }
+    }
+
 }
 
 #Preview("Menu Bar Popover") {

@@ -81,7 +81,7 @@ nonisolated enum MetricPalette {
 nonisolated enum MetricChartLayout {
     /// Matches the ring buffer capacity `MetricsEngine`/`FixtureDashboardTickFeed`
     /// retain history in, and the "60s...now" axis labels below each chart.
-    static let historyWindowSize = 60
+    static let historyWindowSize = MetricHistoryDefaults.sampleCapacity
 
     /// Fraction of each bar's slot the bar itself occupies — the remainder is
     /// always a gap, whether the slot is wide (big window) or narrow (small

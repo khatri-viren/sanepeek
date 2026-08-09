@@ -1,5 +1,16 @@
 import Foundation
 
+/// Shared defaults for the bounded histories that back the dashboard and popup charts.
+///
+/// The UI displays the most recent 60 samples. The retention window is intentionally a little
+/// longer than 60 seconds because the foreground polling timer is nominally 1 Hz but can wake
+/// slightly late due to normal scheduling and the work performed between ticks. Capacity, not
+/// retention, remains the hard bound on the number of samples displayed.
+nonisolated enum MetricHistoryDefaults {
+    static let sampleCapacity = 60
+    static let retention: TimeInterval = 75
+}
+
 nonisolated struct MetricSample<Value: Sendable & Equatable>: Sendable, Equatable {
     let timestamp: MetricTimestamp
     let value: Value

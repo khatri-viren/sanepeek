@@ -132,20 +132,15 @@ final class AppState {
     /// always-on idle cost of keeping menu bar items live (V1.1 plan 3g).
     private static let backgroundCadencePolicy = CadencePolicy(refreshRate: .fiveSeconds)
 
-    /// The menu bar item whose popup is currently open, or nil if none is. Every enabled
-    /// metric has its own `MenuBarExtra`, and therefore its own popup window; observing this
-    /// lets the others dismiss themselves so only one is ever on screen (see
-    /// `handlePopupVisibilityChange`).
-    private(set) var frontmostPopupKind: MetricKind?
-
     /// Exposed read-only so `DashboardView` can gate its card content on it: the window is
     /// pre-created (and its view tree kept live) at launch regardless of visibility, so without
     /// this the whole card grid — Swift Charts included — re-renders on every tick even while
     /// nobody can see it (performance review P0).
     private(set) var isDashboardVisible = false
-    /// A set rather than a `Bool`: two popups overlap briefly during a hand-off, since the
-    /// incoming one appears before the outgoing one has finished dismissing.
-    private var visiblePopupKinds: Set<MetricKind> = []
+    /// The shared AppKit popover's active session. Keeping the opening ID means a delayed close
+    /// notification cannot clear a newer presentation after a rapid status-item hand-off.
+    private var visiblePopupSession: (kind: MetricKind, id: UInt64)?
+    private var nextPopupSessionID: UInt64 = 0
     private var visibleDashboardWindowIDs: Set<ObjectIdentifier> = []
     private var dashboardWindowObservers: [ObjectIdentifier: [NSObjectProtocol]] = [:]
     /// The single dashboard `NSWindow`, captured the first time it resolves (at launch —
@@ -166,8 +161,8 @@ final class AppState {
     private nonisolated(unsafe) var displayAvailabilityObservers: [NSObjectProtocol] = []
 
     /// Held only while `recomputePollingState()` wants full coverage (popup or dashboard open).
-    /// `LSUIElement` accessory apps are still subject to App Nap even while a `MenuBarExtra`
-    /// popup is on screen — it doesn't register as an "actively in use" window the way a normal
+    /// `LSUIElement` accessory apps are still subject to App Nap even while a menu-bar popover
+    /// is on screen — it doesn't register as an "actively in use" window the way a normal
     /// one does — and App Nap throttles `Task.sleep`-driven timers, which silently stretches the
     /// fast loop's real cadence past its nominal 1s interval. Since every history buffer evicts
     /// samples on wall-clock age alone, a stretched cadence permanently caps how full the chart
@@ -301,27 +296,34 @@ final class AppState {
         }
     }
 
-    /// Wired to the menu bar popup's `onAppear`/`onDisappear`, once per menu bar item since
-    /// each `MenuBarExtra` owns a separate popup window. Opening a popup always widens polling
-    /// to every metric for as long as one is open — it's a full glance view, not scoped to the
-    /// menu bar's enabled subset (3c) — independent of whether the dashboard is open.
+    /// Wired to the shared menu-bar popover's lifecycle. Opening it widens polling to every
+    /// metric for as long as it is open — it's a full glance view, not scoped to the menu bar's
+    /// enabled subset (3c) — independent of whether the dashboard is open.
     ///
-    /// Publishing the newly-opened `kind` is also how the *other* popups learn to close: macOS
-    /// does not dismiss one menu bar item's popup when a different item is clicked, so without
-    /// this every enabled metric could have its own copy on screen at once.
-    func handlePopupVisibilityChange(isVisible: Bool, kind: MetricKind) {
-        if isVisible {
-            visiblePopupKinds.insert(kind)
-            frontmostPopupKind = kind
-        } else {
-            visiblePopupKinds.remove(kind)
-            // Only clear if this was the frontmost one: the outgoing popup in a hand-off
-            // disappears *after* the incoming one has already claimed the slot.
-            if frontmostPopupKind == kind {
-                frontmostPopupKind = nil
-            }
-        }
+    /// The shared AppKit popover reports its lifecycle here so foreground polling stays active
+    /// for the complete visible session. The returned ID must be passed back on close because a
+    /// delayed close notification must not clear a newer presentation.
+    @discardableResult
+    func popupDidAppear(kind: MetricKind) -> UInt64 {
+        nextPopupSessionID &+= 1
+        let sessionID = nextPopupSessionID
+        visiblePopupSession = (kind, sessionID)
         recomputePollingState()
+        return sessionID
+    }
+
+    func popupDidDisappear(kind: MetricKind, sessionID: UInt64) {
+        // Ignore a delayed callback belonging to an older presentation.
+        guard visiblePopupSession?.kind == kind,
+              visiblePopupSession?.id == sessionID
+        else { return }
+
+        visiblePopupSession = nil
+        recomputePollingState()
+    }
+
+    func isPopupVisible(kind: MetricKind) -> Bool {
+        visiblePopupSession?.kind == kind
     }
 
     /// The single place that decides what `MetricsEngine` should be doing, re-run on every
@@ -332,7 +334,7 @@ final class AppState {
     private func recomputePollingState() {
         guard let metricsEngine = dependencies.metricsEngine else { return }
 
-        let wantsFullCoverage = isDashboardVisible || !visiblePopupKinds.isEmpty
+        let wantsFullCoverage = isDashboardVisible || visiblePopupSession != nil
         let enabledMenuBarMetrics = Set(MetricKind.allCases.filter { settingsStore.menuBarConfig(for: $0).isEnabled })
         let activeMetrics = wantsFullCoverage ? Set(MetricKind.allCases) : enabledMenuBarMetrics
         let shouldPoll = !isDisplayUnavailable && (wantsFullCoverage || !enabledMenuBarMetrics.isEmpty)
@@ -353,7 +355,7 @@ final class AppState {
 
     /// Begins/ends a `ProcessInfo` activity token spanning exactly the time the popup or
     /// dashboard is open. `LSUIElement` accessory apps remain subject to App Nap even with a
-    /// `MenuBarExtra` popup on screen, and App Nap throttles `Task.sleep`-driven timers — which
+    /// menu-bar popover on screen, and App Nap throttles `Task.sleep`-driven timers — which
     /// stretches the fast loop's real cadence past its nominal interval without erroring. Since
     /// `MetricRingBuffer` evicts purely on wall-clock age, a stretched cadence permanently caps
     /// how full the history chart gets rather than being a blip it later recovers from; this

@@ -25,6 +25,7 @@ struct DashboardView: View {
                     Text("SanePeek")
                         .font(.title2.weight(.semibold))
 
+
                     Text(statusMessage)
                         .foregroundStyle(.secondary)
                 }
@@ -37,6 +38,8 @@ struct DashboardView: View {
                     Label("Settings", systemImage: "gearshape")
                 }
                 .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .help("Open Settings")
                 .accessibilityIdentifier("dashboard.settings")
             }

@@ -12,8 +12,8 @@ nonisolated enum MenuBarDisplayMode: String, Codable, CaseIterable, Equatable, S
     }
 }
 
-/// Per-metric menu bar preference: whether it shows a `MenuBarExtra` item at all, and in
-/// which form. Keyed by `MetricKind` in `SettingsStore.menuBarConfig`.
+/// Per-metric menu bar preference: whether it shows a status item at all, and in which form.
+/// Keyed by `MetricKind` in `SettingsStore.menuBarConfig`.
 nonisolated struct MenuBarMetricConfig: Codable, Equatable, Sendable {
     var isEnabled: Bool
     var displayMode: MenuBarDisplayMode

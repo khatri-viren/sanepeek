@@ -35,4 +35,26 @@ struct PopoverChartAxisTests {
         #expect(PopoverChartAxis.label(for: .nan, kind: .memory, formatter: formatter) == "--")
         #expect(PopoverChartAxis.label(for: .infinity, kind: .network, formatter: formatter) == "--")
     }
+
+    @Test("Sparkline scale follows a narrow temperature range instead of zero")
+    func sparklineScaleFollowsNarrowTemperatureRange() {
+        let domain = SparklineScale.domain(for: [54, 56, 62])
+
+        #expect(domain.lowerBound > 45)
+        #expect(domain.upperBound < 70)
+        #expect(domain.contains(54))
+        #expect(domain.contains(62))
+    }
+
+    @Test("Sparkline scale gives constant data breathing room and guards invalid history")
+    func sparklineScaleHandlesDegenerateHistory() {
+        let constant = SparklineScale.domain(for: [60, 60, 60])
+
+        #expect(constant.lowerBound < 60)
+        #expect(constant.upperBound > 60)
+
+        let invalid = SparklineScale.domain(for: [.nan, .infinity, -.infinity])
+        #expect(invalid.lowerBound == 0)
+        #expect(invalid.upperBound == 1)
+    }
 }

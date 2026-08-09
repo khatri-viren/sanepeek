@@ -79,8 +79,8 @@ actor MetricsEngine {
         fastScheduler: any MetricScheduler = SystemMetricScheduler(),
         slowScheduler: any MetricScheduler = SystemMetricScheduler(),
         cadencePolicy: CadencePolicy = CadencePolicy(),
-        historyRetention: TimeInterval = 60,
-        historyCapacity: Int = 60,
+        historyRetention: TimeInterval = MetricHistoryDefaults.retention,
+        historyCapacity: Int = MetricHistoryDefaults.sampleCapacity,
         logger: Logger = Logger(subsystem: "com.sanepeek.app", category: "MetricsEngine"),
         signposter: OSSignposter = OSSignposter(subsystem: "com.sanepeek.app", category: "MetricsEngine")
     ) {
@@ -146,7 +146,9 @@ actor MetricsEngine {
 
     func updateCadence(_ policy: CadencePolicy) {
         guard cadencePolicy != policy else { return }
-        logger.info("MetricsEngine updating cadence")
+        // Debug, not info: this fires on every popup/dashboard open and close (full-coverage
+        // cadence swaps in and out), not on a noteworthy lifecycle transition like start/stop.
+        logger.debug("MetricsEngine updating cadence")
         cadencePolicy = policy
         guard !isStopped, !isPaused, fastTask != nil else { return }
         fastTask?.cancel()

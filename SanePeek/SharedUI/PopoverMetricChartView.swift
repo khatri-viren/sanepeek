@@ -8,11 +8,9 @@ import SwiftUI
 /// a sparkline for the metrics whose dashboard card uses one — via the shared chart views, so
 /// there's one implementation per shape rather than a second, flatter set living here.
 ///
-/// Deliberately draws no background of its own: `MenuBarExtra(.window)` already provides the
-/// popup's Liquid Glass surface, and glass can't sample glass — a second material layered on
-/// top reads the frosted panel rather than the desktop and flattens the whole popup. So content
-/// sits directly on it and uses vibrancy-aware `.primary`/`.secondary` colors instead, staying
-/// legible in both appearances.
+/// Deliberately draws no background of its own: the shared AppKit popover provides the panel.
+/// A second material layer would flatten that surface, so content sits directly on it and uses
+/// `.primary`/`.secondary` colors instead, staying legible in both appearances.
 struct PopoverMetricChartView: View {
     let model: MetricCardModel
     let viewModel: DashboardViewModel
@@ -85,6 +83,13 @@ struct PopoverMetricChartView: View {
                 chart
                     .frame(maxHeight: .infinity)
                     .frame(minHeight: 110)
+                    .transaction { transaction in
+                        // The popup's outer stage drives the metric-switch transition. Without
+                        // this, Swift Charts also picks up that ambient animation and grows
+                        // each of the ~60 bars from zero independently, reading as stacking and
+                        // flicker instead of one clean chart appearing.
+                        transaction.animation = nil
+                    }
 
                 HistoryChartTimeAxis()
 
@@ -109,7 +114,13 @@ struct PopoverMetricChartView: View {
             MemoryCardView.chart(for: viewModel.memoryDetail, accentColor: model.accentColor, axisLabel: percentageAxisLabel, showsFree: false)
         case .network:
             NetworkCardView.chart(for: viewModel.networkDetail, accentColor: model.accentColor, axisLabel: axisLabel)
-        case .temperature, .gpu, .storage, .battery:
+        case .temperature:
+            SparklineView(
+                values: Array(model.sparklineValues.suffix(MetricChartLayout.historyWindowSize)),
+                color: model.accentColor,
+                axisLabel: { value in axisLabel(value) }
+            )
+        case .gpu, .storage, .battery:
             // These render as a plain trend on the dashboard too — there's a single value
             // here, not a breakdown that sums to a whole.
             SparklineView(

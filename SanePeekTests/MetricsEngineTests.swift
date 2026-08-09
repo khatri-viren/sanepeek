@@ -375,6 +375,44 @@ struct MetricsEngineTests {
         await engine.stop()
     }
 
+    @Test("History keeps a full display window across small foreground timer drift")
+    func historyKeepsFullDisplayWindowAcrossSmallForegroundTimerDrift() async {
+        let clock = SteppingClock()
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let engine = MetricsEngine(
+            cpuReader: QueueingReader(results: [.available(CPUSnapshot(timestamp: .zero, utilization: 0.4))]),
+            memoryReader: QueueingReader(results: [.available(MemorySnapshot(timestamp: .zero, usedBytes: 1))]),
+            storageReader: QueueingReader(results: [.available(StorageSnapshot(timestamp: .zero, usedBytes: 1))]),
+            networkReader: QueueingReader(results: [.available(NetworkSnapshot(timestamp: .zero, downloadBytesPerSecond: 1))]),
+            batteryReader: QueueingReader(results: [.available(BatterySnapshot(timestamp: .zero, percentage: 1))]),
+            gpuReader: QueueingReader(results: [.available(GPUSnapshot(timestamp: .zero, utilization: 0.1))]),
+            temperatureReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            clock: clock,
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler,
+            historyCapacity: MetricChartLayout.historyWindowSize
+        )
+
+        await engine.setActiveMetrics([.cpu, .memory])
+        await engine.start()
+        await fastScheduler.waitUntilIntervalsCount(1)
+
+        // A 1-second timer with normal work/scheduling overhead can tick at 1.05s. After
+        // 60 seconds of wall-clock time, strict 60-second eviction would drop the oldest
+        // samples before the chart reaches its 60-slot display window.
+        for tick in 2...MetricChartLayout.historyWindowSize {
+            await clock.advance(by: 1.05)
+            await fastScheduler.advance()
+            await fastScheduler.waitUntilIntervalsCount(tick)
+        }
+
+        #expect(await engine.history(for: .cpuUtilization).count == MetricChartLayout.historyWindowSize)
+        #expect(await engine.history(for: .memoryUsedBytes).count == MetricChartLayout.historyWindowSize)
+
+        await engine.stop()
+    }
+
     @Test("No polling task leaks after cancellation")
     func noPollingTaskLeaksAfterCancellation() async {
         let fastScheduler = StepScheduler()
