@@ -74,3 +74,11 @@ can filter them.
 - Do not commit or push changes to this repository without the user's explicit request for
   that action. When explicitly requested, inspect the final diff and status first, then commit
   only the in-scope changes and push the current branch.
+
+## Release versioning
+
+- Before triggering or cutting a release, ask the user for the exact version number to use.
+- Never infer, assume, or derive the release version from README examples, the current
+  project version, the latest tag, or semantic-versioning conventions.
+- Do not create or push a release tag, or dispatch a release workflow, until the user has
+  explicitly provided the version number.

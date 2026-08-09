@@ -62,5 +62,13 @@ can filter them.
 - This applies to the vault only. Changes to this repo (`SanePeek/`) still need an explicit
   go-ahead before committing.
 
+## Release versioning
+
+- Before triggering or cutting a release, ask the user for the exact version number to use.
+- Never infer, assume, or derive the release version from README examples, the current
+  project version, the latest tag, or semantic-versioning conventions.
+- Do not create or push a release tag, or dispatch a release workflow, until the user has
+  explicitly provided the version number.
+
 Run `xcodebuild test -project SanePeek.xcodeproj -scheme SanePeek -destination 'platform=macOS'`
 before considering changes complete.
