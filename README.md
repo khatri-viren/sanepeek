@@ -29,7 +29,8 @@ compact indicators or full numeric readings in the menu bar.
 ### Flexible menu bar monitoring
 
 Choose indicator or numeric display styles for the metrics you want to see, with
-color-coded temperature warnings when your Mac gets hot.
+color-coded warning and critical states for any supported metric, including CPU,
+memory, storage, network, battery, and temperature.
 
 <p align="center">
   <img src="docs/screenshots/menu-bar-indicators.png" alt="SanePeek menu bar with indicator configuration" width="500">
