@@ -115,6 +115,10 @@ actor MetricsEngine {
         guard !isStopped, fastTask == nil, slowTask == nil else { return }
         isPaused = false
         logger.info("MetricsEngine starting polling loops")
+        // Install the continuation before either polling task can publish. Without this,
+        // the first samples can be emitted into a nil continuation and the UI waits for the
+        // next cadence interval to see them.
+        _ = snapshots()
         if !hasPublishedFirstSnapshot, launchSignpostState == nil {
             launchSignpostState = signposter.beginInterval("Launch")
         }
@@ -160,6 +164,15 @@ actor MetricsEngine {
     /// stopped entirely should use `pause()` instead of passing an empty set.
     func setActiveMetrics(_ metrics: Set<MetricKind>) {
         activeMetrics = metrics
+    }
+
+    /// Interrupts the slow loop's long background wait so a newly visible view receives
+    /// Storage and Battery values immediately. The loop always samples before its first wait,
+    /// so restarting it is also sufficient when the engine was paused and then resumed.
+    func refreshSlowMetrics() {
+        guard !isStopped, !isPaused, slowTask != nil else { return }
+        slowTask?.cancel()
+        slowTask = Task { [weak self] in await self?.runSlowLoop() }
     }
 
     private func cancelTasks() {

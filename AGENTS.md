@@ -48,6 +48,8 @@ can filter them.
 
 ## Agent workflow
 
+- These instructions are durable project rules. Keep them in force across tasks unless the
+  user explicitly changes a rule.
 - Use the `sanepeek` MCP server's `project_map`, `get_context`, and `search` tools before
   broad grep/read exploration.
 - Read notes through `get_note` and `get_section`; prefer focused sections over full files.
@@ -62,5 +64,13 @@ can filter them.
 - This applies to the vault only. Changes to this repo (`SanePeek/`) still need an explicit
   go-ahead before committing.
 
-Run `xcodebuild test -project SanePeek.xcodeproj -scheme SanePeek -destination 'platform=macOS'`
-before considering changes complete.
+## Validation and delivery
+
+- Run the narrowest relevant validation for the change by default (for example, a focused
+  test target or test filter plus `git diff --check`). Do not run the full Xcode test suite
+  unless the user explicitly requests it or explicitly changes this rule.
+- Before considering a change complete, report exactly which validation ran and whether it
+  passed. If broader validation is not run, say so plainly.
+- Do not commit or push changes to this repository without the user's explicit request for
+  that action. When explicitly requested, inspect the final diff and status first, then commit
+  only the in-scope changes and push the current branch.

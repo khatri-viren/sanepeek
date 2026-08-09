@@ -35,6 +35,50 @@ struct MetricsEngineTests {
         await engine.stop()
     }
 
+    @Test("Refreshing slow metrics interrupts the background wait")
+    func refreshingSlowMetricsReadsStorageAndBatteryImmediately() async {
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let storageReader = QueueingReader<StorageSnapshot>(
+            results: [
+                .available(StorageSnapshot(timestamp: .zero, usedBytes: 1)),
+                .available(StorageSnapshot(timestamp: .zero, usedBytes: 2))
+            ]
+        )
+        let batteryReader = QueueingReader<BatterySnapshot>(
+            results: [
+                .available(BatterySnapshot(timestamp: .zero, percentage: 0.5)),
+                .available(BatterySnapshot(timestamp: .zero, percentage: 0.6))
+            ]
+        )
+        let engine = MetricsEngine(
+            cpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: storageReader,
+            networkReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            batteryReader: batteryReader,
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.start()
+        await slowScheduler.waitUntilIntervalsCount(1)
+        #expect(await storageReader.callCount == 1)
+        #expect(await batteryReader.callCount == 1)
+
+        await engine.refreshSlowMetrics()
+        await slowScheduler.waitUntilIntervalsCount(2)
+
+        #expect(await storageReader.callCount == 2)
+        #expect(await batteryReader.callCount == 2)
+        let snapshot = await engine.currentSnapshot()
+        #expect(snapshot.storage?.usedBytes == 2)
+        #expect(snapshot.battery?.percentage == 0.6)
+
+        await engine.stop()
+    }
+
     @Test("Start, pause, and resume control whether polling reads occur")
     func lifecycleControlsPolling() async {
         let fastScheduler = StepScheduler()

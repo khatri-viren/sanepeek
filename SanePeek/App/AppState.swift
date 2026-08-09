@@ -350,6 +350,9 @@ final class AppState {
             await metricsEngine.setActiveMetrics(activeMetrics)
             await metricsEngine.updateCadence(cadence)
             await metricsEngine.resume()
+            if wantsFullCoverage {
+                await metricsEngine.refreshSlowMetrics()
+            }
         }
     }
 
