@@ -59,7 +59,6 @@ struct MenuBarPopoverView: View {
                     Image(systemName: "macwindow")
                 }
                 .buttonStyle(.plain)
-                .focusEffectDisabled()
                 .help("Open Dashboard")
                 .accessibilityLabel("Open Dashboard")
 
@@ -69,7 +68,6 @@ struct MenuBarPopoverView: View {
                     Image(systemName: "gearshape")
                 }
                 .buttonStyle(.plain)
-                .focusEffectDisabled()
                 .help("Settings")
                 .accessibilityLabel("Settings")
             }

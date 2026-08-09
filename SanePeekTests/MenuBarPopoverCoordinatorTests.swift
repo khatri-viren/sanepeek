@@ -32,7 +32,6 @@ struct MenuBarPopoverCoordinatorTests {
         let suiteName = "com.sanepeek.tests.menu-bar-controller.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let appState = AppState(
             dependencies: AppDependencies(
@@ -42,6 +41,10 @@ struct MenuBarPopoverCoordinatorTests {
             )
         )
         let controller = MenuBarPopoverController()
+        defer {
+            controller.tearDown()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
         controller.configure(appState: appState)
 
         #expect(controller.installedStatusItemKinds == [.cpu])
@@ -58,10 +61,14 @@ struct MenuBarPopoverCoordinatorTests {
             MenuBarMetricConfig(isEnabled: true, displayMode: .bar),
             for: .temperature
         )
-        await Task.yield()
-        await Task.yield()
+        let expectedKinds: Set<MetricKind> = [.cpu, .memory, .temperature]
+        let deadline = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
+        while controller.installedStatusItemKinds != expectedKinds,
+              DispatchTime.now().uptimeNanoseconds < deadline {
+            await Task.yield()
+        }
 
-        #expect(controller.installedStatusItemKinds == [.cpu, .memory, .temperature])
+        #expect(controller.installedStatusItemKinds == expectedKinds)
         #expect(controller.statusItemAutosaveNames == [
             .cpu: "com.sanepeek.status-item.cpu",
             .memory: "com.sanepeek.status-item.memory",

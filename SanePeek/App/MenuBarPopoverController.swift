@@ -127,6 +127,24 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
         popover.delegate = self
     }
 
+    /// Releases process-global AppKit status items when the owner is no longer used. This is
+    /// also useful for tests, where NSStatusBar.system survives between test cases.
+    func tearDown() {
+        appState = nil
+        if popover.isShown {
+            popover.performClose(nil)
+        }
+        for statusItem in statusItems.values {
+            NSStatusBar.system.removeStatusItem(statusItem)
+        }
+        statusItems.removeAll()
+        kindsByButton.removeAll()
+        activeSession = nil
+        isPopoverPresented = false
+        coordinator = MenuBarPopoverCoordinator()
+        observationRefreshCoalescer.markCompleted()
+    }
+
     func configure(appState: AppState) {
         guard self.appState !== appState else { return }
 
@@ -155,10 +173,16 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
             // Observation callbacks can arrive several times during one dashboard tick. Hop to
             // the next main-queue turn so all mutations from that tick are coalesced into one
             // status-item sync instead of repeatedly rendering the same label image.
-            DispatchQueue.main.async { [weak self] in
+            // AppState mutations are MainActor-isolated, so Observation invokes this callback
+            // on the main actor. Mark the refresh pending before queueing the hop; otherwise
+            // every callback reaches the main queue before any callback can observe the flag.
+            MainActor.assumeIsolated {
                 guard let self, self.observationRefreshCoalescer.schedule() else { return }
-                self.observeApplicationState()
-                self.observationRefreshCoalescer.markCompleted()
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.observationRefreshCoalescer.markCompleted()
+                    self.observeApplicationState()
+                }
             }
         }
     }

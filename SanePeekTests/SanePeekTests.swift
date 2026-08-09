@@ -539,9 +539,15 @@ struct SanePeekTests {
     @Test("Storage reader matches macOS important-usage free capacity")
     func storageReaderUsesImportantUsageCapacity() async {
         let volumeURL = URL(fileURLWithPath: "/")
-        let values = try! volumeURL.resourceValues(forKeys: [
-            .volumeAvailableCapacityForImportantUsageKey
-        ])
+        let values: URLResourceValues
+        do {
+            values = try volumeURL.resourceValues(forKeys: [
+                .volumeAvailableCapacityForImportantUsageKey
+            ])
+        } catch {
+            Issue.record("Could not read important-usage capacity for the root volume: \(error)")
+            return
+        }
         guard let expectedAvailableBytes = values.volumeAvailableCapacityForImportantUsage else {
             Issue.record("macOS did not provide important-usage capacity for the root volume")
             return

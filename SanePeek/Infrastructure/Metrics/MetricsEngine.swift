@@ -37,6 +37,10 @@ actor MetricsEngine {
 
     private var fastTask: Task<Void, Never>?
     private var slowTask: Task<Void, Never>?
+    /// Incremented whenever the slow loop is replaced or canceled. A reader is allowed to
+    /// ignore task cancellation, so the generation is the publication boundary that prevents
+    /// an older loop from overwriting values produced by its replacement.
+    private var slowLoopGeneration = 0
     private var isPaused = false
     private var isStopped = false
 
@@ -123,7 +127,9 @@ actor MetricsEngine {
             launchSignpostState = signposter.beginInterval("Launch")
         }
         fastTask = Task { [weak self] in await self?.runFastLoop() }
-        slowTask = Task { [weak self] in await self?.runSlowLoop() }
+        slowLoopGeneration += 1
+        let generation = slowLoopGeneration
+        slowTask = Task { [weak self] in await self?.runSlowLoop(generation: generation) }
     }
 
     func pause() {
@@ -172,12 +178,15 @@ actor MetricsEngine {
     func refreshSlowMetrics() {
         guard !isStopped, !isPaused, slowTask != nil else { return }
         slowTask?.cancel()
-        slowTask = Task { [weak self] in await self?.runSlowLoop() }
+        slowLoopGeneration += 1
+        let generation = slowLoopGeneration
+        slowTask = Task { [weak self] in await self?.runSlowLoop(generation: generation) }
     }
 
     private func cancelTasks() {
         fastTask?.cancel()
         slowTask?.cancel()
+        slowLoopGeneration += 1
         fastTask = nil
         slowTask = nil
     }
@@ -241,7 +250,7 @@ actor MetricsEngine {
         }
     }
 
-    private func runSlowLoop() async {
+    private func runSlowLoop(generation: Int) async {
         while !Task.isCancelled {
             let tick = clock.now()
             let cycleState = signposter.beginInterval("PollingCycle.slow")
@@ -249,9 +258,12 @@ actor MetricsEngine {
             async let storageResult = readIfActive(.storage) { await self.readStorage(at: tick) }
             async let batteryResult = readIfActive(.battery) { await self.readBattery(at: tick) }
 
+            let storage = await storageResult
+            let battery = await batteryResult
+            guard generation == slowLoopGeneration, !Task.isCancelled else { return }
             updateSlowMetrics(
-                storage: await storageResult,
-                battery: await batteryResult,
+                storage: storage,
+                battery: battery,
                 at: tick
             )
             publish(at: tick)

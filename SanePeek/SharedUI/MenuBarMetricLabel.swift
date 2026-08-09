@@ -125,6 +125,7 @@ struct MenuBarLabelImage: View {
         let value: String
         let fraction: Double?
         let tint: Color?
+        let scale: CGFloat
     }
 
     /// Rasterizing through `ImageRenderer` costs real time — it's a full mini SwiftUI render
@@ -140,7 +141,14 @@ struct MenuBarLabelImage: View {
         fraction: Double?,
         tint: Color?
     ) -> NSImage? {
-        let key = RenderCacheKey(displayMode: displayMode, value: value, fraction: fraction, tint: tint)
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let key = RenderCacheKey(
+            displayMode: displayMode,
+            value: value,
+            fraction: fraction,
+            tint: tint,
+            scale: scale
+        )
         if let cached = renderCache[kind], cached.key == key {
             return cached.image
         }
@@ -155,7 +163,7 @@ struct MenuBarLabelImage: View {
         // template for the menu bar; a tint has to be applied here, before rasterizing, since
         // nothing downstream can add color back to a flattened image.
         let renderer = ImageRenderer(content: content.foregroundStyle(tint ?? .primary))
-        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        renderer.scale = scale
         guard let image = renderer.nsImage else { return nil }
         image.isTemplate = tint == nil
         renderCache[kind] = (key, image)

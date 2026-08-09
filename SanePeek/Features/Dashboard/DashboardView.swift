@@ -39,7 +39,6 @@ struct DashboardView: View {
                 }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.plain)
-                .focusEffectDisabled()
                 .help("Open Settings")
                 .accessibilityIdentifier("dashboard.settings")
             }
