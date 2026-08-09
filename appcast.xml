@@ -6,14 +6,14 @@
     <description>Updates for SanePeek</description>
     <language>en</language>
     <item>
-      <title>1.0.2</title>
-      <sparkle:version>4</sparkle:version>
-      <sparkle:shortVersionString>1.0.2</sparkle:shortVersionString>
+      <title>1.1.0</title>
+      <sparkle:version>5</sparkle:version>
+      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-      <link>https://github.com/khatri-viren/sanepeek/releases/tag/v1.0.2</link>
-      <sparkle:releaseNotesLink>https://github.com/khatri-viren/sanepeek/releases/tag/v1.0.2</sparkle:releaseNotesLink>
-      <pubDate>Sat, 08 Aug 2026 13:11:23 +0000</pubDate>
-      <enclosure url="https://github.com/khatri-viren/sanepeek/releases/download/v1.0.2/SanePeek-1.0.2.dmg" type="application/octet-stream" sparkle:edSignature="k7rjKpvCdSDIN6WC08bb2BJMOV28kMOdutqCE6aqBaeNSFH6g/cWjEkglJIcKYM94PJqsZ9zIFZ+NnTSnizuBw==" length="4685400" />
+      <link>https://github.com/khatri-viren/sanepeek/releases/tag/v1.1.0</link>
+      <sparkle:releaseNotesLink>https://github.com/khatri-viren/sanepeek/releases/tag/v1.1.0</sparkle:releaseNotesLink>
+      <pubDate>Sun, 09 Aug 2026 21:35:48 +0000</pubDate>
+      <enclosure url="https://github.com/khatri-viren/sanepeek/releases/download/v1.1.0/SanePeek-1.1.0.dmg" type="application/octet-stream" sparkle:edSignature="9lsuvZfCCj4PKnID1sBP8sq7kZ+bUQWKUwfHhu7yAsQ7DBjZ6C0x5RtKC+e2lPLUteILWzUw9UB8SkxJAkHaAA==" length="4737653" />
     </item>
   </channel>
 </rss>
