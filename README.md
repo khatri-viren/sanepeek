@@ -6,6 +6,41 @@ complexity, or resource usage of traditional monitoring tools.
 
 > Monitor your Mac. Do not become its biggest process.
 
+## Screenshots
+
+SanePeek keeps the important system metrics one glance away, whether you prefer
+compact indicators or full numeric readings in the menu bar.
+
+<p align="center">
+  <img src="docs/screenshots/overview-cpu.png" alt="SanePeek CPU dashboard" width="900">
+</p>
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/memory.png" alt="SanePeek memory dashboard" width="100%"></td>
+    <td><img src="docs/screenshots/network.png" alt="SanePeek network dashboard" width="100%"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/storage.png" alt="SanePeek storage dashboard" width="100%"></td>
+    <td><img src="docs/screenshots/temperature.png" alt="SanePeek temperature dashboard" width="100%"></td>
+  </tr>
+</table>
+
+### Flexible menu bar monitoring
+
+Choose indicator or numeric display styles for the metrics you want to see, with
+color-coded temperature warnings when your Mac gets hot.
+
+<p align="center">
+  <img src="docs/screenshots/menu-bar-indicators.png" alt="SanePeek menu bar with indicator configuration" width="500">
+  <img src="docs/screenshots/menu-bar-numbers.png" alt="SanePeek menu bar with numeric configuration" width="500">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/menu-bar-warning.png" alt="SanePeek menu bar temperature warning at 92.5 degrees Celsius" width="500">
+  <img src="docs/screenshots/menu-bar-critical.png" alt="SanePeek menu bar critical temperature warning at 97.8 degrees Celsius" width="500">
+</p>
+
 ## Features
 
 - **Menu bar items** — a live number or level-bar reading for any metric you enable,
