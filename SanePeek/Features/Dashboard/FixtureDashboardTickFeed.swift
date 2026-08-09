@@ -7,7 +7,7 @@ import Foundation
 final class FixtureDashboardTickFeed: DashboardTickFeed {
     private let interval: TimeInterval
     private let baseline: MetricsSnapshot
-    private static let historyLimit = 60
+    private static let historyLimit = MetricHistoryDefaults.sampleCapacity
 
     /// App/Wired/Compressed shares of the used-memory fraction, matching
     /// `MetricFixtures`'s split. Sum to 1 so the breakdown always accounts for the whole

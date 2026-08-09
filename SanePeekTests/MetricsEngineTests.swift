@@ -35,6 +35,84 @@ struct MetricsEngineTests {
         await engine.stop()
     }
 
+    @Test("Refreshing slow metrics interrupts the background wait")
+    func refreshingSlowMetricsReadsStorageAndBatteryImmediately() async {
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let storageReader = QueueingReader<StorageSnapshot>(
+            results: [
+                .available(StorageSnapshot(timestamp: .zero, usedBytes: 1)),
+                .available(StorageSnapshot(timestamp: .zero, usedBytes: 2))
+            ]
+        )
+        let batteryReader = QueueingReader<BatterySnapshot>(
+            results: [
+                .available(BatterySnapshot(timestamp: .zero, percentage: 0.5)),
+                .available(BatterySnapshot(timestamp: .zero, percentage: 0.6))
+            ]
+        )
+        let engine = MetricsEngine(
+            cpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: storageReader,
+            networkReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            batteryReader: batteryReader,
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.start()
+        await slowScheduler.waitUntilIntervalsCount(1)
+        #expect(await storageReader.callCount == 1)
+        #expect(await batteryReader.callCount == 1)
+
+        await engine.refreshSlowMetrics()
+        await slowScheduler.waitUntilIntervalsCount(2)
+
+        #expect(await storageReader.callCount == 2)
+        #expect(await batteryReader.callCount == 2)
+        let snapshot = await engine.currentSnapshot()
+        #expect(snapshot.storage?.usedBytes == 2)
+        #expect(snapshot.battery?.percentage == 0.6)
+
+        await engine.stop()
+    }
+
+    @Test("Refreshing slow metrics discards a result from the superseded loop")
+    func refreshingSlowMetricsDiscardsSupersededResult() async {
+        let slowScheduler = StepScheduler()
+        let storageReader = DelayedStorageReader()
+        let engine = MetricsEngine(
+            cpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: storageReader,
+            networkReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            batteryReader: QueueingReader(results: [.available(BatterySnapshot(timestamp: .zero, percentage: 0.5))]),
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            fastScheduler: StepScheduler(),
+            slowScheduler: slowScheduler
+        )
+
+        await engine.start()
+        await storageReader.waitUntilCallCount(1)
+
+        await engine.refreshSlowMetrics()
+        await slowScheduler.waitUntilIntervalsCount(1)
+        let freshSnapshot = await engine.currentSnapshot()
+        #expect(freshSnapshot.storage?.usedBytes == 2)
+
+        // The first reader intentionally ignores cancellation and completes after the
+        // replacement loop has already published its newer value.
+        await storageReader.releaseFirstRead()
+        let supersededLoopPublished = await slowScheduler.waitUntilIntervalsCount(2, timeout: 0.05)
+
+        #expect(!supersededLoopPublished)
+        let finalSnapshot = await engine.currentSnapshot()
+        #expect(finalSnapshot.storage?.usedBytes == 2)
+        await engine.stop()
+    }
+
     @Test("Start, pause, and resume control whether polling reads occur")
     func lifecycleControlsPolling() async {
         let fastScheduler = StepScheduler()
@@ -375,6 +453,44 @@ struct MetricsEngineTests {
         await engine.stop()
     }
 
+    @Test("History keeps a full display window across small foreground timer drift")
+    func historyKeepsFullDisplayWindowAcrossSmallForegroundTimerDrift() async {
+        let clock = SteppingClock()
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let engine = MetricsEngine(
+            cpuReader: QueueingReader(results: [.available(CPUSnapshot(timestamp: .zero, utilization: 0.4))]),
+            memoryReader: QueueingReader(results: [.available(MemorySnapshot(timestamp: .zero, usedBytes: 1))]),
+            storageReader: QueueingReader(results: [.available(StorageSnapshot(timestamp: .zero, usedBytes: 1))]),
+            networkReader: QueueingReader(results: [.available(NetworkSnapshot(timestamp: .zero, downloadBytesPerSecond: 1))]),
+            batteryReader: QueueingReader(results: [.available(BatterySnapshot(timestamp: .zero, percentage: 1))]),
+            gpuReader: QueueingReader(results: [.available(GPUSnapshot(timestamp: .zero, utilization: 0.1))]),
+            temperatureReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            clock: clock,
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler,
+            historyCapacity: MetricChartLayout.historyWindowSize
+        )
+
+        await engine.setActiveMetrics([.cpu, .memory])
+        await engine.start()
+        await fastScheduler.waitUntilIntervalsCount(1)
+
+        // A 1-second timer with normal work/scheduling overhead can tick at 1.05s. After
+        // 60 seconds of wall-clock time, strict 60-second eviction would drop the oldest
+        // samples before the chart reaches its 60-slot display window.
+        for tick in 2...MetricChartLayout.historyWindowSize {
+            await clock.advance(by: 1.05)
+            await fastScheduler.advance()
+            await fastScheduler.waitUntilIntervalsCount(tick)
+        }
+
+        #expect(await engine.history(for: .cpuUtilization).count == MetricChartLayout.historyWindowSize)
+        #expect(await engine.history(for: .memoryUsedBytes).count == MetricChartLayout.historyWindowSize)
+
+        await engine.stop()
+    }
+
     @Test("No polling task leaks after cancellation")
     func noPollingTaskLeaksAfterCancellation() async {
         let fastScheduler = StepScheduler()
@@ -543,6 +659,34 @@ extension QueueingReader: BatteryReader where Snapshot == BatterySnapshot {}
 extension QueueingReader: GPUReader where Snapshot == GPUSnapshot {}
 extension QueueingReader: TemperatureReader where Snapshot == TemperatureSnapshot {}
 
+private actor DelayedStorageReader: StorageReader {
+    private var callCount = 0
+    private var firstReadContinuation: CheckedContinuation<MetricResult<StorageSnapshot>, Never>?
+
+    func read(at timestamp: MetricTimestamp) async -> MetricResult<StorageSnapshot> {
+        callCount += 1
+        if callCount == 1 {
+            return await withCheckedContinuation { continuation in
+                firstReadContinuation = continuation
+            }
+        }
+        return .available(StorageSnapshot(timestamp: timestamp, usedBytes: 2))
+    }
+
+    func waitUntilCallCount(_ count: Int) async {
+        while callCount < count {
+            await Task.yield()
+        }
+    }
+
+    func releaseFirstRead() {
+        firstReadContinuation?.resume(
+            returning: .available(StorageSnapshot(timestamp: .zero, usedBytes: 1))
+        )
+        firstReadContinuation = nil
+    }
+}
+
 private actor SteppingClock: MetricClock {
     private nonisolated(unsafe) var current = MetricTimestamp.zero
 
@@ -604,5 +748,14 @@ private actor StepScheduler: MetricScheduler {
         while requestedIntervals.count < count {
             await Task.yield()
         }
+    }
+
+    func waitUntilIntervalsCount(_ count: Int, timeout: TimeInterval) async -> Bool {
+        let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(timeout * 1_000_000_000)
+        while requestedIntervals.count < count,
+              DispatchTime.now().uptimeNanoseconds < deadline {
+            await Task.yield()
+        }
+        return requestedIntervals.count >= count
     }
 }

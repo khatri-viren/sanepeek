@@ -13,10 +13,14 @@ struct StorageUsageDetailView: View {
 
     private static let ringDiameter: CGFloat = 120
     private static let ringLineWidth: CGFloat = 12
+    /// The ring sits inside the popup's clipped transition stage. Leave room for the stroke's
+    /// outer half so the left edge stays round instead of being cut by that stage boundary.
+    private static let detailSpacing: CGFloat = 18
 
     var body: some View {
-        HStack(spacing: 24) {
+        HStack(spacing: Self.detailSpacing) {
             ring
+                .padding(.leading, Self.ringLineWidth / 2)
 
             VStack(alignment: .leading, spacing: 16) {
                 row(label: "Total Capacity", value: detail.totalText)

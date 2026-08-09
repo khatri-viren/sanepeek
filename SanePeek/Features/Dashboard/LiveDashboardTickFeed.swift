@@ -13,9 +13,10 @@ final class LiveDashboardTickFeed: DashboardTickFeed {
         AsyncStream { continuation in
             let engine = engine
             let task = Task {
+                let snapshots = await engine.snapshots()
                 await engine.start()
 
-                for await snapshot in await engine.snapshots() {
+                for await snapshot in snapshots {
                     async let cpuHistory = engine.history(for: .cpuUtilization)
                     async let cpuUserHistory = engine.history(for: .cpuUserUtilization)
                     async let cpuSystemHistory = engine.history(for: .cpuSystemUtilization)

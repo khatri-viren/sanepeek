@@ -37,10 +37,14 @@ struct CompactMetricRowView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
         .background(
             model.accentColor.opacity(isSelected ? 0.12 : 0),
             in: RoundedRectangle(cornerRadius: 8)
         )
+        // Spacer regions are intentionally part of the row, so make the entire rounded row
+        // a hit target instead of requiring the click to land on text or an icon.
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(model.accessibilityLabel)
         .accessibilityValue(model.accessibilityValue)

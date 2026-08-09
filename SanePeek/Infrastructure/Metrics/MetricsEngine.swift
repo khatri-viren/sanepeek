@@ -37,6 +37,10 @@ actor MetricsEngine {
 
     private var fastTask: Task<Void, Never>?
     private var slowTask: Task<Void, Never>?
+    /// Incremented whenever the slow loop is replaced or canceled. A reader is allowed to
+    /// ignore task cancellation, so the generation is the publication boundary that prevents
+    /// an older loop from overwriting values produced by its replacement.
+    private var slowLoopGeneration = 0
     private var isPaused = false
     private var isStopped = false
 
@@ -79,8 +83,8 @@ actor MetricsEngine {
         fastScheduler: any MetricScheduler = SystemMetricScheduler(),
         slowScheduler: any MetricScheduler = SystemMetricScheduler(),
         cadencePolicy: CadencePolicy = CadencePolicy(),
-        historyRetention: TimeInterval = 60,
-        historyCapacity: Int = 60,
+        historyRetention: TimeInterval = MetricHistoryDefaults.retention,
+        historyCapacity: Int = MetricHistoryDefaults.sampleCapacity,
         logger: Logger = Logger(subsystem: "com.sanepeek.app", category: "MetricsEngine"),
         signposter: OSSignposter = OSSignposter(subsystem: "com.sanepeek.app", category: "MetricsEngine")
     ) {
@@ -115,11 +119,17 @@ actor MetricsEngine {
         guard !isStopped, fastTask == nil, slowTask == nil else { return }
         isPaused = false
         logger.info("MetricsEngine starting polling loops")
+        // Install the continuation before either polling task can publish. Without this,
+        // the first samples can be emitted into a nil continuation and the UI waits for the
+        // next cadence interval to see them.
+        _ = snapshots()
         if !hasPublishedFirstSnapshot, launchSignpostState == nil {
             launchSignpostState = signposter.beginInterval("Launch")
         }
         fastTask = Task { [weak self] in await self?.runFastLoop() }
-        slowTask = Task { [weak self] in await self?.runSlowLoop() }
+        slowLoopGeneration += 1
+        let generation = slowLoopGeneration
+        slowTask = Task { [weak self] in await self?.runSlowLoop(generation: generation) }
     }
 
     func pause() {
@@ -146,7 +156,9 @@ actor MetricsEngine {
 
     func updateCadence(_ policy: CadencePolicy) {
         guard cadencePolicy != policy else { return }
-        logger.info("MetricsEngine updating cadence")
+        // Debug, not info: this fires on every popup/dashboard open and close (full-coverage
+        // cadence swaps in and out), not on a noteworthy lifecycle transition like start/stop.
+        logger.debug("MetricsEngine updating cadence")
         cadencePolicy = policy
         guard !isStopped, !isPaused, fastTask != nil else { return }
         fastTask?.cancel()
@@ -160,9 +172,21 @@ actor MetricsEngine {
         activeMetrics = metrics
     }
 
+    /// Interrupts the slow loop's long background wait so a newly visible view receives
+    /// Storage and Battery values immediately. The loop always samples before its first wait,
+    /// so restarting it is also sufficient when the engine was paused and then resumed.
+    func refreshSlowMetrics() {
+        guard !isStopped, !isPaused, slowTask != nil else { return }
+        slowTask?.cancel()
+        slowLoopGeneration += 1
+        let generation = slowLoopGeneration
+        slowTask = Task { [weak self] in await self?.runSlowLoop(generation: generation) }
+    }
+
     private func cancelTasks() {
         fastTask?.cancel()
         slowTask?.cancel()
+        slowLoopGeneration += 1
         fastTask = nil
         slowTask = nil
     }
@@ -226,7 +250,7 @@ actor MetricsEngine {
         }
     }
 
-    private func runSlowLoop() async {
+    private func runSlowLoop(generation: Int) async {
         while !Task.isCancelled {
             let tick = clock.now()
             let cycleState = signposter.beginInterval("PollingCycle.slow")
@@ -234,9 +258,12 @@ actor MetricsEngine {
             async let storageResult = readIfActive(.storage) { await self.readStorage(at: tick) }
             async let batteryResult = readIfActive(.battery) { await self.readBattery(at: tick) }
 
+            let storage = await storageResult
+            let battery = await batteryResult
+            guard generation == slowLoopGeneration, !Task.isCancelled else { return }
             updateSlowMetrics(
-                storage: await storageResult,
-                battery: await batteryResult,
+                storage: storage,
+                battery: battery,
                 at: tick
             )
             publish(at: tick)

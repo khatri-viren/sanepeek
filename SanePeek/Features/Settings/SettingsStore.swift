@@ -39,19 +39,11 @@ final class SettingsStore {
         }
     }
 
-    // Which metrics show a live `MenuBarExtra` item and in which form. Only `.cpu` is enabled
-    // out of the box, matching how most menu bar system monitors ship — everything else is
-    // opt-in. Deliberately 7 independent stored properties rather than one
-    // `[MetricKind: MenuBarMetricConfig]` dictionary property: `@Observable` tracks
-    // invalidation per *stored property*, not per dictionary key, so a single dictionary
-    // property meant every `MenuBarExtra`'s `isInserted` binding (each reading this same
-    // property, one per metric) was invalidated by *any* metric's change — and since
-    // `MenuBarExtra`'s `isInserted` binding is bridged through AppKit's KVO, each invalidation
-    // re-read and wrote back through every binding, which could in turn invalidate the others
-    // again. In practice this pinned the main thread at ~100% CPU as soon as any menu bar item
-    // toggled. Reading/writing by `MetricKind` still works via `menuBarConfig(for:)` /
-    // `setMenuBarConfig(_:for:)` below — the `switch` inside only ever touches the one matching
-    // property, so per-metric access stays precisely scoped.
+    // Which metrics show a live status item and in which form. Only `.cpu` is enabled out of the
+    // box, matching how most menu bar system monitors ship — everything else is opt-in. These
+    // remain independent stored properties rather than one dictionary so `@Observable` can track
+    // each metric preference precisely; `menuBarConfig(for:)` and `setMenuBarConfig(_:for:)`
+    // preserve a single `MetricKind`-based access point for callers.
     var cpuMenuBarConfig: MenuBarMetricConfig {
         didSet {
             guard cpuMenuBarConfig != oldValue else { return }

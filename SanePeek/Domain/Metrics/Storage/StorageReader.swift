@@ -68,12 +68,19 @@ nonisolated struct FoundationStorageSystemAdapter: StorageSystemAdapter {
         do {
             let values = try volumeURL.resourceValues(forKeys: [
                 .volumeTotalCapacityKey,
-                .volumeAvailableCapacityKey
+                .volumeAvailableCapacityKey,
+                .volumeAvailableCapacityForImportantUsageKey
             ])
+
+            // System Settings reports the space available for important usage, which includes
+            // reclaimable APFS space. The generic capacity key is more conservative and can
+            // under-report user-visible free space by several gigabytes.
+            let availableBytes = values.volumeAvailableCapacityForImportantUsage
+                ?? values.volumeAvailableCapacity.map { Int64($0) }
             return .available(
                 StorageSystemSample(
                     totalBytes: values.volumeTotalCapacity.map(Int64.init),
-                    availableBytes: values.volumeAvailableCapacity.map(Int64.init)
+                    availableBytes: availableBytes
                 )
             )
         } catch {

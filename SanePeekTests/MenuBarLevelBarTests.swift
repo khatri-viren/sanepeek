@@ -13,9 +13,8 @@ import Testing
 /// *template* image, where alpha is the only surviving channel, so anything that painted a
 /// background would collapse a full bar and an empty one into the same silhouette.
 ///
-/// These cover the drawing only. They cannot catch the actual bug that made bar mode blank —
-/// that a `MenuBarExtra` label never paints `Shape`s at all, which is why `MenuBarLevelBarImage`
-/// exists — because `ImageRenderer` has no such restriction. That one needs a live menu bar.
+/// These cover the drawing only. The final status-bar composition still needs a live menu-bar
+/// check, because the tests render an image rather than exercise an `NSStatusBarButton`.
 @MainActor
 @Suite("MenuBarLevelBar rendering")
 struct MenuBarLevelBarTests {
@@ -107,11 +106,8 @@ struct MenuBarLevelBarTests {
 /// Covers the three-letter names stacked beside each bar, and the composition of the two.
 ///
 /// Same limitation as `MenuBarLevelBarTests`: these prove the content draws under
-/// `ImageRenderer`, which is how `MenuBarBarLabelImage` actually produces it — but a
-/// `MenuBarExtra` label paints strictly less (single-line `Text` and `Image` only), and the
-/// first attempt at this feature rendered only each name's *first* letter in the real menu bar
-/// while passing every test of this kind. Anything about menu bar layout still needs a live
-/// status item.
+/// `ImageRenderer`, which is how `MenuBarLabelImage` produces it. Anything about the final menu
+/// bar layout still needs a live status-item check.
 @MainActor
 @Suite("Menu bar metric abbreviations")
 struct MenuBarMetricAbbreviationTests {

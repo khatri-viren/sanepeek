@@ -86,9 +86,14 @@ struct StackedHistoryChart: View {
                 }
             }
             .chartLegend(.hidden)
-            // No implicit animation here: this redraws every tick, and animating a full
-            // 60-bar replace made old and new bars cross-fade on top of each other,
-            // reading as bars piling up instead of a clean sliding window.
+            .transaction { transaction in
+                // The popup animates the chart panel when the selected metric changes. Keep
+                // Swift Charts from also interpolating all 60 bars inside that transition,
+                // which makes CPU/Memory swaps flash or briefly stack the old and new series.
+                // This chart redraws every tick, so mark-level animation is not useful here
+                // either.
+                transaction.animation = nil
+            }
         }
     }
 
@@ -164,6 +169,11 @@ struct BidirectionalHistoryChart: View {
                 }
             }
             .chartLegend(.hidden)
+            .transaction { transaction in
+                // As with the stacked chart, the panel owns selection motion; the mirrored
+                // bars should redraw as one stable snapshot instead of animating underneath it.
+                transaction.animation = nil
+            }
         }
     }
 }

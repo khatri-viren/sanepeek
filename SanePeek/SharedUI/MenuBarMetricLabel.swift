@@ -1,64 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// Live `MenuBarExtra` label content for one metric: either its current formatted value
-/// ("number" mode) or a battery-style level bar ("bar" mode), per the user's per-metric
-/// `MenuBarDisplayMode` choice in Settings.
-///
-/// Takes `appState` + `kind` rather than a precomputed card/mode, and reads them inside its own
-/// `body` rather than as arguments the caller evaluates up front: this label's data changes on
-/// every metrics tick, and evaluating it eagerly inside `SanePeekApp.body` (a `Scene`, not a
-/// `View`) forced the *entire* scene graph — every `MenuBarExtra`, the dashboard `WindowGroup`,
-/// `Settings` — to reconstruct on every tick, which pinned the main thread. Reading the
-/// `@Observable` state from within a `View`'s own `body` is the well-supported path for
-/// frequent updates; only `View.body` is optimized for that, `Scene.body` is not.
-///
-/// Reuses `MetricCardStatus.tintColor` directly rather than a new color rule — the same
-/// normal/warning/critical resolution already used for every dashboard card's status pill.
-///
-/// **This surface is a deliberate exception to `MetricCardStatus`'s "conveyed via symbol *and*
-/// word everywhere it's shown, never color alone".** It previously carried the status symbol as
-/// a small badge to honor that; the user removed it as visual clutter, leaving warning and
-/// critical distinguished by color alone. Two things soften that, neither of them a full
-/// substitute: the level bar's own fill still conveys magnitude, so a critical reading is a
-/// nearly-full bar whether or not its color registers, and the popup and dashboard — one click
-/// away — still show symbol and word. The item's accessibility label carries the status word,
-/// so VoiceOver is unaffected; sighted color-blind users are the ones this costs.
-struct MenuBarMetricLabel: View {
-    let appState: AppState
-    let kind: MetricKind
-
-    var body: some View {
-        let card = appState.dashboardViewModel.card(for: kind)
-        let displayMode = appState.settingsStore.menuBarConfig(for: kind).displayMode
-
-        MenuBarLabelImage(
-            kind: kind,
-            displayMode: displayMode,
-            value: card?.primaryValue ?? "--",
-            fraction: card?.levelFraction,
-            tint: card?.status?.tintColor
-        )
-        .accessibilityLabel(accessibilityLabel(for: card))
-    }
-
-    /// Restores in speech what dropping the status badge removed from sight.
-    private func accessibilityLabel(for card: MetricCardModel?) -> String {
-        var parts = [kind.menuBarAbbreviation, card?.primaryValue ?? "--"]
-        if let word = card?.status?.accessibilityWord {
-            parts.append(word)
-        }
-        return parts.joined(separator: ", ")
-    }
-}
-
 /// A menu bar item's content in either display mode: the metric's three-letter name stacked one
 /// letter per line, followed by its current value or its level bar.
 ///
-/// Always drawn through `MenuBarLabelImage`, never placed in a `MenuBarExtra` label directly —
-/// see that type for why. Both modes go through the same rasterization even though `.number`'s
-/// value text would render natively, because the stacked name beside it would not, and one
-/// composed image is the arrangement already proven to work.
+/// Both modes are drawn through `MenuBarLabelImage` before assignment to an AppKit status
+/// button. One composed image keeps the stacked name and value/bar aligned as a single unit.
 struct MenuBarLabelContent: View {
     let kind: MetricKind
     let displayMode: MenuBarDisplayMode
@@ -128,18 +75,9 @@ extension MetricKind {
 
 /// Draws `MenuBarLabelContent` by rasterizing it into a template image.
 ///
-/// **A `MenuBarExtra` label paints only `Text` and `Image`, laid out on a single line.** Both
-/// halves of that were found the hard way, against a live menu bar:
-///
-/// - *`Shape`s are laid out and never drawn.* A label of
-///   `Text("X") + Rectangle() + Circle()` widened its status item from 18pt to 31pt — reserving
-///   the shapes' width — and rendered the "X" alone. This is why bar mode originally showed
-///   nothing, and it applied equally to the Swift Charts version before it: charts are shapes.
-/// - *Stacked text collapses to one line.* A `VStack` of three `Text`s rendered only the first
-///   letter of each metric's name ("C", "R", "N"…), with the rest dropped.
-///
-/// `ImageRenderer` has neither restriction, so the whole thing — letters and bar — is drawn
-/// there and handed over as one `Image`.
+/// Each AppKit status button receives a single `NSImage`. `ImageRenderer` draws the complete
+/// stacked abbreviation and custom level bar before it reaches the status bar, so that compact
+/// layout stays stable regardless of the button's native rendering behavior.
 ///
 /// **Template rendering is conditional on there being no status tint.** A template image keeps
 /// only alpha, which is exactly right at normal status: the system paints it in the menu bar's
@@ -148,9 +86,8 @@ extension MetricKind {
 /// tint is baked into the pixels instead and `isTemplate` left off — the appearance is frozen
 /// at render time, which is fine precisely because the color is the point.
 ///
-/// This re-renders on every metrics tick. It is a ~20pt-tall raster at a 1–5s cadence, far
-/// cheaper than the scene-graph rebuild `MenuBarMetricLabel`'s own doc comment describes
-/// avoiding — but it is the reason to keep this content small.
+/// This is called on metrics updates, but its per-metric cache skips rasterization whenever the
+/// displayed pixels have not changed.
 struct MenuBarLabelImage: View {
     let kind: MetricKind
     let displayMode: MenuBarDisplayMode
@@ -188,6 +125,7 @@ struct MenuBarLabelImage: View {
         let value: String
         let fraction: Double?
         let tint: Color?
+        let scale: CGFloat
     }
 
     /// Rasterizing through `ImageRenderer` costs real time — it's a full mini SwiftUI render
@@ -203,7 +141,14 @@ struct MenuBarLabelImage: View {
         fraction: Double?,
         tint: Color?
     ) -> NSImage? {
-        let key = RenderCacheKey(displayMode: displayMode, value: value, fraction: fraction, tint: tint)
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let key = RenderCacheKey(
+            displayMode: displayMode,
+            value: value,
+            fraction: fraction,
+            tint: tint,
+            scale: scale
+        )
         if let cached = renderCache[kind], cached.key == key {
             return cached.image
         }
@@ -218,7 +163,7 @@ struct MenuBarLabelImage: View {
         // template for the menu bar; a tint has to be applied here, before rasterizing, since
         // nothing downstream can add color back to a flattened image.
         let renderer = ImageRenderer(content: content.foregroundStyle(tint ?? .primary))
-        renderer.scale = NSScreen.main?.backingScaleFactor ?? 2
+        renderer.scale = scale
         guard let image = renderer.nsImage else { return nil }
         image.isTemplate = tint == nil
         renderCache[kind] = (key, image)
@@ -233,9 +178,8 @@ struct MenuBarLabelImage: View {
 /// borrows from is horizontal, but a vertical bar reads as a level meter rather than as a
 /// second battery sitting next to the real one.
 ///
-/// Replaces a miniature 16-sample Swift Charts bar chart that showed nothing at all. Always
-/// drawn through `MenuBarLevelBarImage`, never placed in a `MenuBarExtra` label directly —
-/// see that type for why.
+/// Replaces a miniature 16-sample Swift Charts bar chart that was too dense to read at status
+/// bar scale. It is rendered into the status button's composed label image.
 ///
 /// A level bar rather than a smaller chart, for two independent reasons. A menu bar item is too
 /// narrow to carry a trend: the old chart's bars were `.fixed(2)` wide, so 16 of them needed

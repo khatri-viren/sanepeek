@@ -161,6 +161,22 @@ struct SanePeekTests {
         #expect(appState.dependencies.runtime == .preview)
     }
 
+    @Test("Menu bar refresh requests coalesce")
+    @MainActor
+    func menuBarRefreshRequestsCoalesce() {
+        var coalescer = MenuBarRefreshCoalescer()
+
+        let firstRequest = coalescer.schedule()
+        let duplicateRequest = coalescer.schedule()
+        #expect(firstRequest)
+        #expect(!duplicateRequest)
+
+        coalescer.markCompleted()
+
+        let requestAfterCompletion = coalescer.schedule()
+        #expect(requestAfterCompletion)
+    }
+
     @Test("Preview dependencies provide fixture metric snapshots")
     @MainActor
     func previewDependenciesProvideFixtureSnapshots() {
@@ -518,6 +534,29 @@ struct SanePeekTests {
         let malformedResult = await malformedReader.read(at: .zero)
 
         #expect(malformedResult.availability == .failed(MetricFailure(kind: .invalidData)))
+    }
+
+    @Test("Storage reader matches macOS important-usage free capacity")
+    func storageReaderUsesImportantUsageCapacity() async {
+        let volumeURL = URL(fileURLWithPath: "/")
+        let values: URLResourceValues
+        do {
+            values = try volumeURL.resourceValues(forKeys: [
+                .volumeAvailableCapacityForImportantUsageKey
+            ])
+        } catch {
+            Issue.record("Could not read important-usage capacity for the root volume: \(error)")
+            return
+        }
+        guard let expectedAvailableBytes = values.volumeAvailableCapacityForImportantUsage else {
+            Issue.record("macOS did not provide important-usage capacity for the root volume")
+            return
+        }
+
+        let reader = LiveStorageReader(adapter: FoundationStorageSystemAdapter(volumeURL: volumeURL))
+        let result = await reader.read(at: .zero)
+
+        #expect(result.value?.availableBytes == UInt64(expectedAvailableBytes))
     }
 
     @Test("Network reader filters interfaces and maps monotonic throughput")
