@@ -520,6 +520,23 @@ struct SanePeekTests {
         #expect(malformedResult.availability == .failed(MetricFailure(kind: .invalidData)))
     }
 
+    @Test("Storage reader matches macOS important-usage free capacity")
+    func storageReaderUsesImportantUsageCapacity() async {
+        let volumeURL = URL(fileURLWithPath: "/")
+        let values = try! volumeURL.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey
+        ])
+        guard let expectedAvailableBytes = values.volumeAvailableCapacityForImportantUsage else {
+            Issue.record("macOS did not provide important-usage capacity for the root volume")
+            return
+        }
+
+        let reader = LiveStorageReader(adapter: FoundationStorageSystemAdapter(volumeURL: volumeURL))
+        let result = await reader.read(at: .zero)
+
+        #expect(result.value?.availableBytes == UInt64(expectedAvailableBytes))
+    }
+
     @Test("Network reader filters interfaces and maps monotonic throughput")
     func networkReaderFiltersInterfacesAndMapsMonotonicThroughput() async {
         let first = NetworkSystemSample(
