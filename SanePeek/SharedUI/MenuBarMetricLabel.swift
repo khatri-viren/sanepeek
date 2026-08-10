@@ -12,7 +12,23 @@ struct MenuBarLabelContent: View {
     let value: String
     let fraction: Double?
 
-    private static let spacing: CGFloat = 3
+    private static let spacing: CGFloat = 1
+    /// Keep the rendered status-item width independent of the current number of digits. The
+    /// shared popover is anchored to the status button's bounds, so letting a live value resize
+    /// this column makes its arrow walk left and right as values cross a digit boundary. Wider
+    /// formats get their own stable width so units such as "°C" stay on the same line.
+    private static func numberValueWidth(for kind: MetricKind) -> CGFloat {
+        switch kind {
+        case .cpu, .memory, .gpu, .battery:
+            30
+        case .temperature:
+            56
+        case .storage:
+            64
+        case .network:
+            76
+        }
+    }
 
     var body: some View {
         HStack(spacing: Self.spacing) {
@@ -22,6 +38,12 @@ struct MenuBarLabelContent: View {
             case .number:
                 Text(value)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    // Keep the fixed column's empty space on the trailing side. That preserves
+                    // stable popover anchoring without inserting a visible gap after the label.
+                    .frame(width: Self.numberValueWidth(for: kind), alignment: .leading)
             case .bar:
                 MenuBarLevelBar(fraction: fraction)
             }
