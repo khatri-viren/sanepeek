@@ -57,10 +57,11 @@ nonisolated enum SMCSensorKeys {
     /// `smctempsensor0` node advertises the `z` one. That is not the current temperature.
     /// Measured on 2026-08-08 across a load spike and cool-down: `Tp3z` is *always* exactly
     /// `Tp3x + 12.00` and `Tp3b` *always* exactly `Tp3a + 7.40`, so `b` and `z` are derived
-    /// offset registers; `x`/`z` are additionally noisy and do not track load. Only `a` tracks
-    /// load smoothly and agrees with an independent reader — `Te3a` read 35.93 against Stats'
-    /// 35.9 for the same sensor, while the `z` variant this originally shipped with reported
-    /// 81.2 °C against a true 41.0 °C.
+    /// offset registers; `x`/`z` are additionally noisy and do not track load. Only the
+    /// catalog's canonical live suffix tracks load smoothly: lowercase `a` for `Tp`/`Te`, and
+    /// uppercase `A` for the catalogued `Tf` family. This agrees with an independent reader —
+    /// `Te3a` read 35.93 against Stats' 35.9 for the same sensor, while the `z` variant this
+    /// originally shipped with reported 81.2 °C against a true 41.0 °C.
     static func instantaneousKey(for key: String) -> String {
         guard (key.hasPrefix("Tp") || key.hasPrefix("Te") || key.hasPrefix("Tf")),
               key.count == keyLength,
@@ -69,7 +70,23 @@ nonisolated enum SMCSensorKeys {
         else {
             return key
         }
-        return String(key.dropLast()) + "a"
+
+        let stem = String(key.dropLast())
+        let lowercaseVariant = stem + "a"
+        if knownSensorComponents[lowercaseVariant] != nil {
+            return lowercaseVariant
+        }
+
+        // M3's Tf catalog uses an uppercase A for the live variant, unlike the lowercase
+        // Tp/Te families. Preserve the catalog's casing so component lookup still succeeds.
+        let uppercaseVariant = stem + "A"
+        if knownSensorComponents[uppercaseVariant] != nil {
+            return uppercaseVariant
+        }
+
+        // Keep the historical fallback for an unknown family; it will be rejected by the
+        // component catalog rather than silently inventing a supported sensor.
+        return lowercaseVariant
     }
 
     /// Maps a sensor key to the component it measures, or nil for sensors this app does not
@@ -265,11 +282,12 @@ nonisolated enum SMCSensorKeys {
 
     /// A non-empty registry property can contain only non-temperature entries such as `mTPL`.
     /// Treat discovery as authoritative only when it contains at least one key this reader can
-    /// classify; otherwise probe the union catalog.
+    /// classify; otherwise probe the union catalog. Returned discovered keys are normalized to
+    /// their live-reading variants, so callers do not need to repeat this transformation.
     static func candidates(from discovered: [String]) -> [String] {
-        let hasUsableTemperatureKey = discovered
-            .map(instantaneousKey(for:))
+        let normalized = discovered.map(instantaneousKey(for:))
+        let hasUsableTemperatureKey = normalized
             .contains { component(for: $0) != nil }
-        return hasUsableTemperatureKey ? discovered : fallbackKeys
+        return hasUsableTemperatureKey ? normalized : fallbackKeys
     }
 }

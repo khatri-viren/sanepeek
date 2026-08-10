@@ -41,8 +41,7 @@ struct SMCSensorKeysTests {
 
     @Test("Classifies the real keys this Mac publishes, once rewritten to live variants")
     func classifiesDiscoveredKeys() {
-        let keys = SMCSensorKeys.parse(sensorProperty: Self.m1SensorBlob)
-            .map(SMCSensorKeys.instantaneousKey(for:))
+        let keys = SMCSensorKeys.candidates(from: SMCSensorKeys.parse(sensorProperty: Self.m1SensorBlob))
         let cpu = keys.filter { SMCSensorKeys.component(for: $0) == .cpu }
         let gpu = keys.filter { SMCSensorKeys.component(for: $0) == .gpu }
 
@@ -61,10 +60,21 @@ struct SMCSensorKeysTests {
         #expect(SMCSensorKeys.instantaneousKey(for: "Tp3b") == "Tp3a")
         // Already live, or not part of the suffixed family — left alone.
         #expect(SMCSensorKeys.instantaneousKey(for: "Tp3a") == "Tp3a")
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tf0z") == "Tf0A")
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tf1x") == "Tf1A")
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tf2b") == "Tf2A")
         #expect(SMCSensorKeys.instantaneousKey(for: "TC0P") == "TC0P")
         #expect(SMCSensorKeys.instantaneousKey(for: "TCMz") == "TCMz")
         #expect(SMCSensorKeys.instantaneousKey(for: "TG0D") == "TG0D")
         #expect(SMCSensorKeys.instantaneousKey(for: "Tp3") == "Tp3")
+    }
+
+    @Test("Normalizes discovered M3 Tf variants to catalog keys")
+    func normalizesM3TfVariants() {
+        let candidates = SMCSensorKeys.candidates(from: ["Tf0z", "Tf1x", "Tf2b"])
+
+        #expect(candidates == ["Tf0A", "Tf1A", "Tf2A"])
+        #expect(candidates.allSatisfy { SMCSensorKeys.component(for: $0) != nil })
     }
 
     @Test("Classifies representative M2 through M5 sensor families")
