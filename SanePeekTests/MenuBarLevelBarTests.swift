@@ -196,6 +196,47 @@ struct MenuBarMetricAbbreviationTests {
     }
 }
 
+@MainActor
+@Suite("Menu bar metric label layout")
+struct MenuBarMetricLabelLayoutTests {
+    @Test("Number labels keep the same width as values gain digits")
+    func numberLabelsKeepStableWidthAcrossDigitChanges() {
+        let widths = ["1%", "10%", "100%"].compactMap { value in
+            ImageRenderer(
+                content: MenuBarLabelContent(
+                    kind: .cpu,
+                    displayMode: .number,
+                    value: value,
+                    fraction: nil
+                )
+            ).nsImage?.size.width
+        }
+
+        #expect(widths.count == 3)
+        #expect(Set(widths).count == 1, "Rendered widths changed across digit counts: \(widths)")
+    }
+
+    @Test("Temperature labels stay on one line")
+    func temperatureLabelsDoNotWrap() {
+        for value in ["68.6 °C", "105.0 °C"] {
+            let image = ImageRenderer(
+                content: MenuBarLabelContent(
+                    kind: .temperature,
+                    displayMode: .number,
+                    value: value,
+                    fraction: nil
+                )
+            ).nsImage
+
+            guard let image else {
+                Issue.record("Could not render the temperature menu-bar label")
+                return
+            }
+            #expect(image.size.height <= 20, "Temperature label wrapped to \(image.size.height)pt for \(value)")
+        }
+    }
+}
+
 /// Covers how warning/critical status reaches the menu bar, which is now **color alone** — the
 /// status symbol badge that used to sit beside the item was removed as clutter, so if the color
 /// fails to survive rasterization there is no other signal that a threshold was crossed.

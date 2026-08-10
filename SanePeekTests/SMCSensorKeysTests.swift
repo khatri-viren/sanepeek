@@ -34,10 +34,14 @@ struct SMCSensorKeysTests {
         #expect(SMCSensorKeys.parse(sensorProperty: "Tp2") == [])
     }
 
+    @Test("Falls back when the registry lists only non-temperature entries")
+    func mTPLDoesNotSuppressFallback() {
+        #expect(SMCSensorKeys.candidates(from: ["mTPL"]) == SMCSensorKeys.fallbackKeys)
+    }
+
     @Test("Classifies the real keys this Mac publishes, once rewritten to live variants")
     func classifiesDiscoveredKeys() {
-        let keys = SMCSensorKeys.parse(sensorProperty: Self.m1SensorBlob)
-            .map(SMCSensorKeys.instantaneousKey(for:))
+        let keys = SMCSensorKeys.candidates(from: SMCSensorKeys.parse(sensorProperty: Self.m1SensorBlob))
         let cpu = keys.filter { SMCSensorKeys.component(for: $0) == .cpu }
         let gpu = keys.filter { SMCSensorKeys.component(for: $0) == .gpu }
 
@@ -56,9 +60,41 @@ struct SMCSensorKeysTests {
         #expect(SMCSensorKeys.instantaneousKey(for: "Tp3b") == "Tp3a")
         // Already live, or not part of the suffixed family — left alone.
         #expect(SMCSensorKeys.instantaneousKey(for: "Tp3a") == "Tp3a")
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tf0z") == "Tf0A")
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tf1x") == "Tf1A")
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tf2b") == "Tf2A")
         #expect(SMCSensorKeys.instantaneousKey(for: "TC0P") == "TC0P")
+        #expect(SMCSensorKeys.instantaneousKey(for: "TCMz") == "TCMz")
         #expect(SMCSensorKeys.instantaneousKey(for: "TG0D") == "TG0D")
         #expect(SMCSensorKeys.instantaneousKey(for: "Tp3") == "Tp3")
+    }
+
+    @Test("Normalizes discovered M3 Tf variants to catalog keys")
+    func normalizesM3TfVariants() {
+        let candidates = SMCSensorKeys.candidates(from: ["Tf0z", "Tf1x", "Tf2b"])
+
+        #expect(candidates == ["Tf0A", "Tf1A", "Tf2A"])
+        #expect(candidates.allSatisfy { SMCSensorKeys.component(for: $0) != nil })
+    }
+
+    @Test("Preserves catalogued legacy live keys during normalization")
+    func preservesCataloguedLiveKeys() {
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tp0b") == "Tp0b")
+        #expect(SMCSensorKeys.candidates(from: ["Tp0b"]) == ["Tp0b"])
+    }
+
+    @Test("Classifies representative M2 through M5 sensor families")
+    func classifiesAppleSiliconFamilies() {
+        let expected: [(String, TemperatureComponent)] = [
+            ("Tp1h", .cpu), ("Tg0f", .gpu), // M2
+            ("Te05", .cpu), ("Tf04", .cpu), ("Tf14", .gpu), // M3
+            ("Te0H", .cpu), ("Tp0V", .cpu), ("Tg0G", .gpu), // M4
+            ("Tp00", .cpu), ("Tp0O", .cpu), ("Tg0U", .gpu), // M5
+        ]
+
+        for (key, component) in expected {
+            #expect(SMCSensorKeys.component(for: key) == component, "\(key) classification")
+        }
     }
 
     @Test("Non-temperature and non-die sensors are excluded, not misfiled as CPU")
