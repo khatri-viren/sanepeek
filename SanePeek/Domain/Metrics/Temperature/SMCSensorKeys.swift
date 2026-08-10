@@ -16,6 +16,11 @@ nonisolated enum TemperatureComponent: Equatable, Sendable {
 nonisolated enum SMCSensorKeys {
     static let keyLength = 4
 
+    struct SensorDefinition: Equatable, Sendable {
+        let key: String
+        let component: TemperatureComponent
+    }
+
     /// Temperatures outside this range are treated as a misread rather than a real reading:
     /// unpopulated SMC keys commonly return 0, and no sensor in a Mac legitimately reports
     /// above 150 °C.
@@ -57,7 +62,11 @@ nonisolated enum SMCSensorKeys {
     /// 35.9 for the same sensor, while the `z` variant this originally shipped with reported
     /// 81.2 °C against a true 41.0 °C.
     static func instantaneousKey(for key: String) -> String {
-        guard key.count == keyLength, let suffix = key.last, "bxz".contains(suffix) else {
+        guard (key.hasPrefix("Tp") || key.hasPrefix("Te") || key.hasPrefix("Tf")),
+              key.count == keyLength,
+              let suffix = key.last,
+              "bxz".contains(suffix)
+        else {
             return key
         }
         return String(key.dropLast()) + "a"
@@ -71,17 +80,20 @@ nonisolated enum SMCSensorKeys {
             return nil
         }
 
-        // Intel exposes real fractional GPU die sensors as the `TG` family. Apple Silicon has
-        // no validated equivalent: `tGAM` looks like one and is the key most correlated with
-        // GPU load, but it reports whole numbers only (49, 50, 51, … 86) where every genuine
-        // sensor here reports fractions, so it is a margin/limit register rather than a
-        // temperature. Reporting nothing beats reporting a number that cannot be corroborated.
+        if let knownComponent = knownSensorComponents[key] {
+            return knownComponent
+        }
+
+        // Intel exposes real fractional GPU die sensors as the `TG` family. Apple Silicon
+        // families are intentionally not inferred from prefixes: M3 uses `Tf*` for both CPU
+        // and GPU sensors, while M2/M4/M5 GPU keys use lowercase `Tg*`. Those are mapped in the
+        // explicit catalog below.
         if key.hasPrefix("TG") {
             return .gpu
         }
 
-        // Apple Silicon CPU clusters: `Tp*` performance cores, `Te*` efficiency cores.
-        // Intel CPU dies and proximity sensors: `TC*`.
+        // Apple Silicon CPU clusters and Intel CPU dies/proximity sensors. Unknown Apple
+        // Silicon GPU-shaped keys remain unclassified until validated and added to the catalog.
         if key.hasPrefix("Tp") || key.hasPrefix("Te") || key.hasPrefix("TC") {
             return .cpu
         }
@@ -125,14 +137,139 @@ nonisolated enum SMCSensorKeys {
         readings.filter(isPlausible).max()
     }
 
-    /// Used when a Mac does not publish a `smctempsensor0` sensor list. Covers the common
-    /// Apple Silicon and Intel CPU/GPU keys; unreadable ones are dropped during probing, so
-    /// listing a key that does not exist on this machine costs nothing at runtime.
-    static let fallbackKeys: [String] = [
-        "Tp01", "Tp05", "Tp09", "Tp0D",
-        "Tp2a", "Tp3a", "Tp4a", "Tp5a", "Tp7a", "Tp8a", "Tp9a",
-        "Te0a", "Te3a", "Te05", "Te0S",
+    /// Observed CPU/GPU temperature keys across Apple Silicon generations. Exact SMC names are
+    /// undocumented and the same key can occur on multiple families, so this is a union of
+    /// candidates rather than a model switch. Every candidate is still validated by SMC key
+    /// info, supported encoding, and a plausible reading before it becomes a sensor.
+    static let knownSensors: [SensorDefinition] = [
+        // M1/M2/M4 CPU cluster keys.
+        SensorDefinition(key: "Tp01", component: .cpu),
+        SensorDefinition(key: "Tp05", component: .cpu),
+        SensorDefinition(key: "Tp09", component: .cpu),
+        SensorDefinition(key: "Tp0D", component: .cpu),
+        SensorDefinition(key: "Tp0X", component: .cpu),
+        SensorDefinition(key: "Tp0b", component: .cpu),
+        SensorDefinition(key: "Tp0f", component: .cpu),
+        SensorDefinition(key: "Tp0j", component: .cpu),
+        SensorDefinition(key: "Tp1h", component: .cpu),
+        SensorDefinition(key: "Tp1t", component: .cpu),
+        SensorDefinition(key: "Tp1p", component: .cpu),
+        SensorDefinition(key: "Tp1l", component: .cpu),
+        SensorDefinition(key: "Tp0H", component: .cpu),
+        SensorDefinition(key: "Tp0L", component: .cpu),
+        SensorDefinition(key: "Tp0P", component: .cpu),
+        SensorDefinition(key: "Tp0T", component: .cpu),
+        SensorDefinition(key: "Tp2a", component: .cpu),
+        SensorDefinition(key: "Tp3a", component: .cpu),
+        SensorDefinition(key: "Tp4a", component: .cpu),
+        SensorDefinition(key: "Tp5a", component: .cpu),
+        SensorDefinition(key: "Tp7a", component: .cpu),
+        SensorDefinition(key: "Tp8a", component: .cpu),
+        SensorDefinition(key: "Tp9a", component: .cpu),
+
+        // M1/M3/M4 efficiency cluster keys.
+        SensorDefinition(key: "Te3a", component: .cpu),
+        SensorDefinition(key: "Te04", component: .cpu),
+        SensorDefinition(key: "Te05", component: .cpu),
+        SensorDefinition(key: "Te06", component: .cpu),
+        SensorDefinition(key: "Te0L", component: .cpu),
+        SensorDefinition(key: "Te0P", component: .cpu),
+        SensorDefinition(key: "Te0S", component: .cpu),
+        SensorDefinition(key: "Te09", component: .cpu),
+        SensorDefinition(key: "Te0H", component: .cpu),
+
+        // M3 uses Tf* for both CPU and GPU, so these keys must be explicit.
+        SensorDefinition(key: "Tf04", component: .cpu),
+        SensorDefinition(key: "Tf09", component: .cpu),
+        SensorDefinition(key: "Tf0A", component: .cpu),
+        SensorDefinition(key: "Tf0B", component: .cpu),
+        SensorDefinition(key: "Tf0D", component: .cpu),
+        SensorDefinition(key: "Tf0E", component: .cpu),
+        SensorDefinition(key: "Tf44", component: .cpu),
+        SensorDefinition(key: "Tf49", component: .cpu),
+        SensorDefinition(key: "Tf4A", component: .cpu),
+        SensorDefinition(key: "Tf4B", component: .cpu),
+        SensorDefinition(key: "Tf4D", component: .cpu),
+        SensorDefinition(key: "Tf4E", component: .cpu),
+        SensorDefinition(key: "Tf14", component: .gpu),
+        SensorDefinition(key: "Tf18", component: .gpu),
+        SensorDefinition(key: "Tf19", component: .gpu),
+        SensorDefinition(key: "Tf1A", component: .gpu),
+        SensorDefinition(key: "Tf24", component: .gpu),
+        SensorDefinition(key: "Tf28", component: .gpu),
+        SensorDefinition(key: "Tf29", component: .gpu),
+        SensorDefinition(key: "Tf2A", component: .gpu),
+
+        // M4/M5 CPU cluster keys.
+        SensorDefinition(key: "Tp0V", component: .cpu),
+        SensorDefinition(key: "Tp0Y", component: .cpu),
+        SensorDefinition(key: "Tp0e", component: .cpu),
+        SensorDefinition(key: "Tp00", component: .cpu),
+        SensorDefinition(key: "Tp04", component: .cpu),
+        SensorDefinition(key: "Tp08", component: .cpu),
+        SensorDefinition(key: "Tp0C", component: .cpu),
+        SensorDefinition(key: "Tp0G", component: .cpu),
+        SensorDefinition(key: "Tp0K", component: .cpu),
+        SensorDefinition(key: "Tp0O", component: .cpu),
+        SensorDefinition(key: "Tp0R", component: .cpu),
+        SensorDefinition(key: "Tp0U", component: .cpu),
+        SensorDefinition(key: "Tp0a", component: .cpu),
+        SensorDefinition(key: "Tp0d", component: .cpu),
+        SensorDefinition(key: "Tp0g", component: .cpu),
+        SensorDefinition(key: "Tp0m", component: .cpu),
+        SensorDefinition(key: "Tp0p", component: .cpu),
+        SensorDefinition(key: "Tp0u", component: .cpu),
+        SensorDefinition(key: "Tp0y", component: .cpu),
+
+        // M1/M2/M4/M5 GPU keys. Lowercase `Tg*` is intentional.
+        SensorDefinition(key: "Tg05", component: .gpu),
+        SensorDefinition(key: "Tg0D", component: .gpu),
+        SensorDefinition(key: "Tg0L", component: .gpu),
+        SensorDefinition(key: "Tg0T", component: .gpu),
+        SensorDefinition(key: "Tg0f", component: .gpu),
+        SensorDefinition(key: "Tg0j", component: .gpu),
+        SensorDefinition(key: "Tg0G", component: .gpu),
+        SensorDefinition(key: "Tg0H", component: .gpu),
+        SensorDefinition(key: "Tg1U", component: .gpu),
+        SensorDefinition(key: "Tg1k", component: .gpu),
+        SensorDefinition(key: "Tg0K", component: .gpu),
+        SensorDefinition(key: "Tg0d", component: .gpu),
+        SensorDefinition(key: "Tg0e", component: .gpu),
+        SensorDefinition(key: "Tg0k", component: .gpu),
+        SensorDefinition(key: "Tg0U", component: .gpu),
+        SensorDefinition(key: "Tg0X", component: .gpu),
+        SensorDefinition(key: "Tg0g", component: .gpu),
+        SensorDefinition(key: "Tg1Y", component: .gpu),
+        SensorDefinition(key: "Tg1c", component: .gpu),
+        SensorDefinition(key: "Tg1g", component: .gpu),
+
+        // Independently validated aggregate die/hotspot keys used as safe candidates.
+        SensorDefinition(key: "TCMz", component: .cpu),
+        SensorDefinition(key: "TCMb", component: .cpu),
+        SensorDefinition(key: "TCHP", component: .cpu),
+        SensorDefinition(key: "TRDX", component: .gpu),
+    ]
+
+    private static let knownSensorComponents = Dictionary(
+        uniqueKeysWithValues: knownSensors.map { ($0.key, $0.component) }
+    )
+
+    /// Used when a Mac does not publish a usable `smctempsensor0` sensor list. Unreadable
+    /// candidates are dropped during probing, so listing a key that does not exist on this
+    /// machine costs only a bounded set of initialization calls.
+    static let fallbackKeys: [String] = knownSensors.map(\.key) + [
+        // Intel CPU/GPU keys.
         "TC0P", "TC0D", "TC0E", "TC0F", "TCAD",
         "TG0D", "TG0P",
     ]
+
+    /// A non-empty registry property can contain only non-temperature entries such as `mTPL`.
+    /// Treat discovery as authoritative only when it contains at least one key this reader can
+    /// classify; otherwise probe the union catalog.
+    static func candidates(from discovered: [String]) -> [String] {
+        let hasUsableTemperatureKey = discovered
+            .map(instantaneousKey(for:))
+            .contains { component(for: $0) != nil }
+        return hasUsableTemperatureKey ? discovered : fallbackKeys
+    }
 }

@@ -34,6 +34,11 @@ struct SMCSensorKeysTests {
         #expect(SMCSensorKeys.parse(sensorProperty: "Tp2") == [])
     }
 
+    @Test("Falls back when the registry lists only non-temperature entries")
+    func mTPLDoesNotSuppressFallback() {
+        #expect(SMCSensorKeys.candidates(from: ["mTPL"]) == SMCSensorKeys.fallbackKeys)
+    }
+
     @Test("Classifies the real keys this Mac publishes, once rewritten to live variants")
     func classifiesDiscoveredKeys() {
         let keys = SMCSensorKeys.parse(sensorProperty: Self.m1SensorBlob)
@@ -57,8 +62,23 @@ struct SMCSensorKeysTests {
         // Already live, or not part of the suffixed family — left alone.
         #expect(SMCSensorKeys.instantaneousKey(for: "Tp3a") == "Tp3a")
         #expect(SMCSensorKeys.instantaneousKey(for: "TC0P") == "TC0P")
+        #expect(SMCSensorKeys.instantaneousKey(for: "TCMz") == "TCMz")
         #expect(SMCSensorKeys.instantaneousKey(for: "TG0D") == "TG0D")
         #expect(SMCSensorKeys.instantaneousKey(for: "Tp3") == "Tp3")
+    }
+
+    @Test("Classifies representative M2 through M5 sensor families")
+    func classifiesAppleSiliconFamilies() {
+        let expected: [(String, TemperatureComponent)] = [
+            ("Tp1h", .cpu), ("Tg0f", .gpu), // M2
+            ("Te05", .cpu), ("Tf04", .cpu), ("Tf14", .gpu), // M3
+            ("Te0H", .cpu), ("Tp0V", .cpu), ("Tg0G", .gpu), // M4
+            ("Tp00", .cpu), ("Tp0O", .cpu), ("Tg0U", .gpu), // M5
+        ]
+
+        for (key, component) in expected {
+            #expect(SMCSensorKeys.component(for: key) == component, "\(key) classification")
+        }
     }
 
     @Test("Non-temperature and non-die sensors are excluded, not misfiled as CPU")

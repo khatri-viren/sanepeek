@@ -109,9 +109,9 @@ nonisolated final class SMCTemperatureAdapter: TemperatureSystemAdapter, @unchec
 
     // MARK: - Sensor discovery
 
-    /// Asks the machine which temperature sensors it has instead of hardcoding a per-model key
-    /// list, so this keeps working across M-series generations and Intel. Falls back to a
-    /// static candidate list when the node is absent.
+    /// Asks the machine which temperature sensors it has and falls back to a union catalog when
+    /// the node is absent or contains no usable temperature keys. This keeps working across
+    /// M-series generations and Intel without making the model identifier the source of truth.
     private static func discoverSensorKeys() -> [String] {
         let service = IOServiceGetMatchingService(
             kIOMainPortDefault,
@@ -147,7 +147,7 @@ nonisolated final class SMCTemperatureAdapter: TemperatureSystemAdapter, @unchec
         }
 
         let discovered = SMCSensorKeys.parse(sensorProperty: blob)
-        return discovered.isEmpty ? SMCSensorKeys.fallbackKeys : discovered
+        return SMCSensorKeys.candidates(from: discovered)
     }
 
     // MARK: - SMC protocol
