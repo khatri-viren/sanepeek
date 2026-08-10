@@ -77,6 +77,12 @@ struct SMCSensorKeysTests {
         #expect(candidates.allSatisfy { SMCSensorKeys.component(for: $0) != nil })
     }
 
+    @Test("Preserves catalogued legacy live keys during normalization")
+    func preservesCataloguedLiveKeys() {
+        #expect(SMCSensorKeys.instantaneousKey(for: "Tp0b") == "Tp0b")
+        #expect(SMCSensorKeys.candidates(from: ["Tp0b"]) == ["Tp0b"])
+    }
+
     @Test("Classifies representative M2 through M5 sensor families")
     func classifiesAppleSiliconFamilies() {
         let expected: [(String, TemperatureComponent)] = [

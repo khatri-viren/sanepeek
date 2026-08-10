@@ -63,6 +63,12 @@ nonisolated enum SMCSensorKeys {
     /// `Te3a` read 35.93 against Stats' 35.9 for the same sensor, while the `z` variant this
     /// originally shipped with reported 81.2 °C against a true 41.0 °C.
     static func instantaneousKey(for key: String) -> String {
+        // Some generations use a non-standard suffix as the actual live key (for example,
+        // M1/M2 publish `Tp0b`). Preserve exact catalog entries before deriving family variants.
+        if knownSensorComponents[key] != nil {
+            return key
+        }
+
         guard (key.hasPrefix("Tp") || key.hasPrefix("Te") || key.hasPrefix("Tf")),
               key.count == keyLength,
               let suffix = key.last,
