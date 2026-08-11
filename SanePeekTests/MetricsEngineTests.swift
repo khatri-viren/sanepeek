@@ -9,6 +9,37 @@ import Testing
 
 struct MetricsEngineTests {
 
+    @Test("A stale activity command cannot resume after a newer pause")
+    func staleActivityCommandCannotResumeAfterNewerPause() async {
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let cpuReader = QueueingReader<CPUSnapshot>(
+            results: Array(repeating: .available(CPUSnapshot(timestamp: .zero, utilization: 0.4)), count: 10)
+        )
+        let engine = MetricsEngine(
+            cpuReader: cpuReader,
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            networkReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            batteryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            temperatureReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.reconcileMonitoringActivity(.paused, generation: 2)
+        await engine.reconcileMonitoringActivity(
+            .foreground(cadence: CadencePolicy(refreshRate: .oneSecond)),
+            generation: 1
+        )
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        #expect(await cpuReader.callCount == 0)
+        #expect(await fastScheduler.requestedIntervals.isEmpty)
+        await engine.stop()
+    }
+
     @Test("Fast and slow loops request cadence-specific intervals")
     func loopsRequestCadenceSpecificIntervals() async {
         let fastScheduler = StepScheduler()

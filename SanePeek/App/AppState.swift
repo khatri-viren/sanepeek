@@ -132,6 +132,16 @@ final class AppState {
     /// always-on idle cost of keeping menu bar items live (V1.1 plan 3g).
     private static let backgroundCadencePolicy = CadencePolicy(refreshRate: .fiveSeconds)
 
+    /// Low Power Mode clamps the fast tier to five seconds without changing the user's saved
+    /// refresh-rate preference. The policy still pauses when there is no visible surface and no
+    /// enabled menu-bar metric.
+    private var isLowPowerModeEnabled = ProcessInfo.processInfo.isLowPowerModeEnabled
+
+    /// Monotonically identifies the desired activity snapshots submitted to `MetricsEngine`.
+    /// The engine uses this generation to ignore an older task that reaches its actor after a
+    /// newer lifecycle event.
+    private var monitoringActivityGeneration: UInt64 = 0
+
     /// Exposed read-only so `DashboardView` can gate its card content on it: the window is
     /// pre-created (and its view tree kept live) at launch regardless of visibility, so without
     /// this the whole card grid — Swift Charts included — re-renders on every tick even while
@@ -199,7 +209,8 @@ final class AppState {
     /// Screen sleep is a workspace notification; screen lock has no public API and is
     /// conventionally observed via these two well-established distributed notifications (long
     /// used by menu bar utilities for exactly this purpose, despite being unlisted in
-    /// `NSWorkspace`'s API).
+    /// `NSWorkspace`'s API). Low Power Mode is observed through ProcessInfo's power-state
+    /// notification and is kept as a separate policy input from display availability.
     private func registerDisplayAvailabilityObservers() {
         let center = NotificationCenter.default
         let distributedCenter = DistributedNotificationCenter.default()
@@ -216,12 +227,30 @@ final class AppState {
         let unlocked = distributedCenter.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.setDisplayUnavailable(false) }
         }
-        displayAvailabilityObservers = [sleep, wake, locked, unlocked]
+        let powerStateChanged = center.addObserver(
+            // Swift does not import NSProcessInfoPowerStateDidChangeNotification as a typed
+            // ProcessInfo member in this SDK; this is the Foundation notification's documented
+            // name.
+            forName: Notification.Name("NSProcessInfoPowerStateDidChangeNotification"),
+            object: ProcessInfo.processInfo,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.setLowPowerModeEnabled(ProcessInfo.processInfo.isLowPowerModeEnabled)
+            }
+        }
+        displayAvailabilityObservers = [sleep, wake, locked, unlocked, powerStateChanged]
     }
 
     private func setDisplayUnavailable(_ unavailable: Bool) {
         guard isDisplayUnavailable != unavailable else { return }
         isDisplayUnavailable = unavailable
+        recomputePollingState()
+    }
+
+    private func setLowPowerModeEnabled(_ enabled: Bool) {
+        guard isLowPowerModeEnabled != enabled else { return }
+        isLowPowerModeEnabled = enabled
         recomputePollingState()
     }
 
@@ -326,33 +355,33 @@ final class AppState {
         visiblePopupSession?.kind == kind
     }
 
-    /// The single place that decides what `MetricsEngine` should be doing, re-run on every
-    /// input that can change the answer: dashboard/popup visibility and menu bar config edits.
-    /// - Dashboard or popup open: poll every metric at the user's foreground refresh rate.
-    /// - Otherwise: poll exactly the menu bar's enabled subset (3h) at the slower background
-    ///   cadence (3g), or pause entirely (3e) if nothing is enabled.
+    /// Resolves what `MetricsEngine` should be doing, re-run on every input that can change the
+    /// answer: dashboard/popup visibility, menu bar config edits, refresh-rate edits, display
+    /// availability changes, and Low Power Mode changes. The resulting value is submitted as one
+    /// complete activity snapshot; `MetricsEngine` owns serialization of that snapshot with its
+    /// reader loops.
     private func recomputePollingState() {
         guard let metricsEngine = dependencies.metricsEngine else { return }
 
-        let wantsFullCoverage = isDashboardVisible || visiblePopupSession != nil
         let enabledMenuBarMetrics = Set(MetricKind.allCases.filter { settingsStore.menuBarConfig(for: $0).isEnabled })
-        let activeMetrics = wantsFullCoverage ? Set(MetricKind.allCases) : enabledMenuBarMetrics
-        let shouldPoll = !isDisplayUnavailable && (wantsFullCoverage || !enabledMenuBarMetrics.isEmpty)
-        let cadence = wantsFullCoverage ? settingsStore.cadencePolicy : Self.backgroundCadencePolicy
+        let activity = MonitoringActivityPolicy.resolve(
+            MonitoringActivityInputs(
+                isDashboardVisible: isDashboardVisible,
+                isPopupVisible: visiblePopupSession != nil,
+                enabledMenuBarMetrics: enabledMenuBarMetrics,
+                isDisplayAvailable: !isDisplayUnavailable,
+                isLowPowerModeEnabled: isLowPowerModeEnabled,
+                foregroundCadence: settingsStore.cadencePolicy,
+                backgroundCadence: Self.backgroundCadencePolicy
+            )
+        )
 
-        updateLiveViewActivity(isActive: wantsFullCoverage)
+        updateLiveViewActivity(isActive: activity.isForeground)
 
+        monitoringActivityGeneration &+= 1
+        let generation = monitoringActivityGeneration
         Task {
-            guard shouldPoll else {
-                await metricsEngine.pause()
-                return
-            }
-            await metricsEngine.setActiveMetrics(activeMetrics)
-            await metricsEngine.updateCadence(cadence)
-            await metricsEngine.resume()
-            if wantsFullCoverage {
-                await metricsEngine.refreshSlowMetrics()
-            }
+            await metricsEngine.reconcileMonitoringActivity(activity, generation: generation)
         }
     }
 

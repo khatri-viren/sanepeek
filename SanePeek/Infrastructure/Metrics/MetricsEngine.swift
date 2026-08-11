@@ -44,6 +44,12 @@ actor MetricsEngine {
     private var isPaused = false
     private var isStopped = false
 
+    /// The last desired activity accepted from the lifecycle coordinator. Keeping the value in
+    /// the actor makes repeated equivalent inputs idempotent and lets the actor reject stale
+    /// unstructured tasks without exposing its reader-loop implementation to `AppState`.
+    private var lastActivityState: MonitoringActivityState?
+    private var lastActivityGeneration: UInt64 = 0
+
     private var lastGoodCPU: CPUSnapshot?
     private var lastGoodMemory: MemorySnapshot?
     private var lastGoodStorage: StorageSnapshot?
@@ -170,6 +176,49 @@ actor MetricsEngine {
     /// stopped entirely should use `pause()` instead of passing an empty set.
     func setActiveMetrics(_ metrics: Set<MetricKind>) {
         activeMetrics = metrics
+    }
+
+    /// Applies one complete desired activity state. The generation check is intentionally inside
+    /// the actor: separate tasks created by lifecycle callbacks may arrive out of order, and a
+    /// stale task must not resume polling after a newer pause or replace a newer metric set.
+    func reconcileMonitoringActivity(_ activity: MonitoringActivityState, generation: UInt64) {
+        guard !isStopped, generation > lastActivityGeneration else { return }
+        lastActivityGeneration = generation
+
+        let previousActivity = lastActivityState
+        guard previousActivity != activity else { return }
+        lastActivityState = activity
+
+        switch activity {
+        case .paused:
+            pause()
+
+        case .background, .foreground:
+            setActiveMetrics(activity.activeMetrics)
+            if let cadence = activity.cadence {
+                updateCadence(cadence)
+            }
+
+            // Starting or resuming already samples immediately. Only interrupt an existing
+            // background slow wait when a visible view is newly entering the foreground.
+            let startedPolling: Bool
+            if isPaused {
+                resume()
+                startedPolling = true
+            } else if fastTask == nil && slowTask == nil {
+                start()
+                startedPolling = true
+            } else {
+                startedPolling = false
+            }
+
+            if activity.isForeground,
+               previousActivity?.isForeground == false,
+               !startedPolling
+            {
+                refreshSlowMetrics()
+            }
+        }
     }
 
     /// Interrupts the slow loop's long background wait so a newly visible view receives
