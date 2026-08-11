@@ -115,9 +115,9 @@ struct MenuBarMetricAbbreviationTests {
     /// 4-letter outlier would shift its own bar and break the row.
     @Test("Every metric has a distinct three-letter uppercase name")
     func abbreviationsAreThreeUppercaseLettersAndUnique() {
-        let abbreviations = MetricKind.allCases.map(\.menuBarAbbreviation)
+        let abbreviations = MenuBarCatalog.metrics.map(\.abbreviation)
 
-        for (kind, abbreviation) in zip(MetricKind.allCases, abbreviations) {
+        for (kind, abbreviation) in zip(MenuBarCatalog.metrics.map(\.kind), abbreviations) {
             #expect(abbreviation.count == 3, "\(kind) is \"\(abbreviation)\"")
             #expect(
                 abbreviation.allSatisfy { $0.isUppercase && $0.isLetter },

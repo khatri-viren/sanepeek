@@ -47,7 +47,7 @@ struct SettingsView: View {
             }
 
             Section("Menu Bar") {
-                ForEach(MenuBarSettingsRow.allRows) { row in
+                ForEach(MenuBarCatalog.settingsRows) { row in
                     menuBarRow(for: row)
                 }
             }
@@ -86,9 +86,9 @@ struct SettingsView: View {
         .onAppear { settingsStore.refreshLaunchAtLoginStatus() }
     }
 
-    private func menuBarRow(for row: MenuBarSettingsRow) -> some View {
+    private func menuBarRow(for row: MenuBarMetricDescriptor) -> some View {
         HStack {
-            Toggle(row.title, isOn: menuBarEnabledBinding(for: row.kind))
+            Toggle(row.settingsTitle, isOn: menuBarEnabledBinding(for: row.kind))
                 .accessibilityIdentifier("settings.menuBar.\(row.kind.rawValue).enabled")
 
             Spacer()
@@ -152,23 +152,6 @@ struct SettingsView: View {
             message
         }
     }
-}
-
-private struct MenuBarSettingsRow: Identifiable {
-    let kind: MetricKind
-    let title: String
-
-    var id: MetricKind { kind }
-
-    static let allRows: [MenuBarSettingsRow] = [
-        MenuBarSettingsRow(kind: .cpu, title: "CPU"),
-        MenuBarSettingsRow(kind: .memory, title: "Memory"),
-        MenuBarSettingsRow(kind: .temperature, title: "Temperature"),
-        MenuBarSettingsRow(kind: .network, title: "Network"),
-        MenuBarSettingsRow(kind: .storage, title: "Storage"),
-        MenuBarSettingsRow(kind: .battery, title: "Battery"),
-        MenuBarSettingsRow(kind: .gpu, title: "GPU")
-    ]
 }
 
 private extension RefreshRate {

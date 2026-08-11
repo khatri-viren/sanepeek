@@ -12,7 +12,7 @@ struct MenuBarLabelContent: View {
     let value: String
     let fraction: Double?
 
-    private static let spacing: CGFloat = 1
+    private static let spacing: CGFloat = 4
     /// Keep the rendered status-item width independent of the current number of digits. The
     /// shared popover is anchored to the status button's bounds, so letting a live value resize
     /// this column makes its arrow walk left and right as values cross a digit boundary. Wider
@@ -22,7 +22,7 @@ struct MenuBarLabelContent: View {
         case .cpu, .memory, .gpu, .battery:
             30
         case .temperature:
-            56
+            48
         case .storage:
             64
         case .network:
@@ -67,30 +67,11 @@ struct MenuBarMetricAbbreviation: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(Array(kind.menuBarAbbreviation.enumerated()), id: \.offset) { _, letter in
+            ForEach(Array(MenuBarCatalog.descriptor(for: kind).abbreviation.enumerated()), id: \.offset) { _, letter in
                 Text(String(letter))
                     .font(.system(size: Self.fontSize, weight: .bold, design: .rounded))
                     .frame(height: Self.lineHeight)
             }
-        }
-    }
-}
-
-extension MetricKind {
-    /// Exactly three letters for every metric, so the stacked labels are all the same height
-    /// and the bars beside them stay aligned across items.
-    ///
-    /// `RAM`/`SSD` rather than `MEM`/`DSK` by user choice — they read more naturally on a Mac.
-    /// `TMP` is the one genuinely arbitrary pick; temperature has no conventional shorthand.
-    var menuBarAbbreviation: String {
-        switch self {
-        case .cpu: "CPU"
-        case .memory: "RAM"
-        case .gpu: "GPU"
-        case .network: "NET"
-        case .storage: "SSD"
-        case .battery: "BAT"
-        case .temperature: "TMP"
         }
     }
 }
