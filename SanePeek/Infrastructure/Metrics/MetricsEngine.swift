@@ -44,6 +44,12 @@ actor MetricsEngine {
     private var isPaused = false
     private var isStopped = false
 
+    /// The last desired activity accepted from the lifecycle coordinator. Keeping the value in
+    /// the actor makes repeated equivalent inputs idempotent and lets the actor reject stale
+    /// unstructured tasks without exposing its reader-loop implementation to `AppState`.
+    private var lastActivityState: MonitoringActivityState?
+    private var lastActivityGeneration: UInt64 = 0
+
     private var lastGoodCPU: CPUSnapshot?
     private var lastGoodMemory: MemorySnapshot?
     private var lastGoodStorage: StorageSnapshot?
@@ -70,6 +76,8 @@ actor MetricsEngine {
 
     private var stream: AsyncStream<MetricsSnapshot>?
     private var continuation: AsyncStream<MetricsSnapshot>.Continuation?
+    private var observationStream: AsyncStream<MetricsObservation>?
+    private var observationContinuation: AsyncStream<MetricsObservation>.Continuation?
 
     init(
         cpuReader: any CPUReader = LiveCPUReader(),
@@ -123,6 +131,7 @@ actor MetricsEngine {
         // the first samples can be emitted into a nil continuation and the UI waits for the
         // next cadence interval to see them.
         _ = snapshots()
+        _ = observations()
         if !hasPublishedFirstSnapshot, launchSignpostState == nil {
             launchSignpostState = signposter.beginInterval("Launch")
         }
@@ -152,6 +161,7 @@ actor MetricsEngine {
         isPaused = false
         cancelTasks()
         continuation?.finish()
+        observationContinuation?.finish()
     }
 
     func updateCadence(_ policy: CadencePolicy) {
@@ -170,6 +180,59 @@ actor MetricsEngine {
     /// stopped entirely should use `pause()` instead of passing an empty set.
     func setActiveMetrics(_ metrics: Set<MetricKind>) {
         activeMetrics = metrics
+    }
+
+    /// Applies one complete desired activity state. The generation check is intentionally inside
+    /// the actor: separate tasks created by lifecycle callbacks may arrive out of order, and a
+    /// stale task must not resume polling after a newer pause or replace a newer metric set.
+    func reconcileMonitoringActivity(_ activity: MonitoringActivityState, generation: UInt64) {
+        guard !isStopped, generation > lastActivityGeneration else { return }
+        lastActivityGeneration = generation
+
+        let previousActivity = lastActivityState
+        let activityAlreadyApplied = previousActivity == activity && isRunStateConsistent(with: activity)
+        guard !activityAlreadyApplied else { return }
+        lastActivityState = activity
+
+        switch activity {
+        case .paused:
+            pause()
+
+        case .background, .foreground:
+            setActiveMetrics(activity.activeMetrics)
+            if let cadence = activity.cadence {
+                updateCadence(cadence)
+            }
+
+            // Starting or resuming already samples immediately. Only interrupt an existing
+            // background slow wait when a visible view is newly entering the foreground.
+            let startedPolling: Bool
+            if isPaused {
+                resume()
+                startedPolling = true
+            } else if fastTask == nil && slowTask == nil {
+                start()
+                startedPolling = true
+            } else {
+                startedPolling = false
+            }
+
+            if activity.isForeground,
+               previousActivity?.isForeground == false,
+               !startedPolling
+            {
+                refreshSlowMetrics()
+            }
+        }
+    }
+
+    private func isRunStateConsistent(with activity: MonitoringActivityState) -> Bool {
+        switch activity {
+        case .paused:
+            isPaused && fastTask == nil && slowTask == nil
+        case .background, .foreground:
+            !isPaused && (fastTask != nil || slowTask != nil)
+        }
     }
 
     /// Interrupts the slow loop's long background wait so a newly visible view receives
@@ -203,6 +266,21 @@ actor MetricsEngine {
         )
         stream = newStream
         continuation = newContinuation
+        return newStream
+    }
+
+    /// Returns the coherent publication stream used by dashboard adapters. Each yielded value
+    /// contains the snapshot and every bounded history series from the same actor turn.
+    func observations() -> AsyncStream<MetricsObservation> {
+        if let observationStream {
+            return observationStream
+        }
+        let (newStream, newContinuation) = AsyncStream.makeStream(
+            of: MetricsObservation.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        observationStream = newStream
+        observationContinuation = newContinuation
         return newStream
     }
 
@@ -558,13 +636,26 @@ actor MetricsEngine {
         )
     }
 
+    private func combinedObservation(at timestamp: MetricTimestamp) -> MetricsObservation {
+        MetricsObservation(
+            snapshot: combinedSnapshot(at: timestamp),
+            histories: Dictionary(
+                uniqueKeysWithValues: MetricHistoryKind.allCases.map { kind in
+                    (kind, history[kind]?.samples ?? [])
+                }
+            )
+        )
+    }
+
     private func publish(at tick: MetricTimestamp) {
         guard tick.monotonicSeconds >= lastPublishedMonotonicSeconds else {
             logger.debug("Dropping out-of-order snapshot tick")
             return
         }
         lastPublishedMonotonicSeconds = tick.monotonicSeconds
-        continuation?.yield(combinedSnapshot(at: tick))
+        let observation = combinedObservation(at: tick)
+        continuation?.yield(observation.snapshot)
+        observationContinuation?.yield(observation)
 
         if !hasPublishedFirstSnapshot {
             hasPublishedFirstSnapshot = true

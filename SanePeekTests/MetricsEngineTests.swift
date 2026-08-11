@@ -9,6 +9,69 @@ import Testing
 
 struct MetricsEngineTests {
 
+    @Test("A stale activity command cannot resume after a newer pause")
+    func staleActivityCommandCannotResumeAfterNewerPause() async {
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let cpuReader = QueueingReader<CPUSnapshot>(
+            results: Array(repeating: .available(CPUSnapshot(timestamp: .zero, utilization: 0.4)), count: 10)
+        )
+        let engine = MetricsEngine(
+            cpuReader: cpuReader,
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            networkReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            batteryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            temperatureReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.reconcileMonitoringActivity(.paused, generation: 2)
+        await engine.reconcileMonitoringActivity(
+            .foreground(cadence: CadencePolicy(refreshRate: .oneSecond)),
+            generation: 1
+        )
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        #expect(await cpuReader.callCount == 0)
+        #expect(await fastScheduler.requestedIntervals.isEmpty)
+        await engine.stop()
+    }
+
+    @Test("Repeated pause activity repairs an externally started engine")
+    func repeatedPauseActivityRepairsExternallyStartedEngine() async {
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let engine = MetricsEngine(
+            cpuReader: QueueingReader(
+                results: Array(repeating: .available(CPUSnapshot(timestamp: .zero, utilization: 0.4)), count: 10)
+            ),
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            networkReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            batteryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            temperatureReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.reconcileMonitoringActivity(.paused, generation: 1)
+        await engine.start()
+        await fastScheduler.waitUntilIntervalsCount(1)
+
+        // The same desired state must still repair the run state when another caller started
+        // the engine outside the activity coordinator.
+        await engine.reconcileMonitoringActivity(.paused, generation: 2)
+        await engine.resume()
+
+        let resumed = await fastScheduler.waitUntilIntervalsCount(2, timeout: 0.05)
+        #expect(resumed)
+        await engine.stop()
+    }
+
     @Test("Fast and slow loops request cadence-specific intervals")
     func loopsRequestCadenceSpecificIntervals() async {
         let fastScheduler = StepScheduler()
@@ -149,7 +212,7 @@ struct MetricsEngineTests {
         await engine.stop() // idempotent
     }
 
-    @Test("stop() cancels polling and finishes the snapshot stream")
+    @Test("stop() cancels polling and finishes both publication streams")
     func stopFinishesStream() async {
         let fastScheduler = StepScheduler()
         let slowScheduler = StepScheduler()
@@ -165,6 +228,7 @@ struct MetricsEngineTests {
         )
 
         let stream = await engine.snapshots()
+        let observationStream = await engine.observations()
         await engine.start()
         await fastScheduler.waitUntilIntervalsCount(1)
         await slowScheduler.waitUntilIntervalsCount(1)
@@ -176,8 +240,14 @@ struct MetricsEngineTests {
             received.append(snapshot)
         }
 
-        // The for-await-in loop above only exits once stop() finishes the continuation.
+        var observations: [MetricsObservation] = []
+        for await observation in observationStream {
+            observations.append(observation)
+        }
+
+        // The for-await-in loops above only exit once stop() finishes both continuations.
         #expect(!received.isEmpty)
+        #expect(!observations.isEmpty)
     }
 
     @Test("Refresh rate changes restart only the fast loop without duplicating samples")
@@ -450,6 +520,101 @@ struct MetricsEngineTests {
         let history = await engine.history(for: .cpuUtilization)
         #expect(history.map(\.value) == [2.0, 3.0, 4.0])
 
+        await engine.stop()
+    }
+
+    @Test("Observations pair a snapshot with histories from the same publication")
+    func observationsPairSnapshotAndHistories() async {
+        let clock = SteppingClock()
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let engine = MetricsEngine(
+            cpuReader: SteppingCPUReader(),
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            networkReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            batteryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            temperatureReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            clock: clock,
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.setActiveMetrics([.cpu])
+        var iterator = await engine.observations().makeAsyncIterator()
+        await engine.start()
+        await fastScheduler.waitUntilIntervalsCount(1)
+        await slowScheduler.waitUntilIntervalsCount(1)
+
+        // Advance a second fast publication after both loops have completed their initial
+        // publication, so the newest buffered observation necessarily contains CPU history.
+        await clock.advance(by: 1)
+        await fastScheduler.advance()
+        await fastScheduler.waitUntilIntervalsCount(2)
+
+        let observation = await iterator.next()
+
+        guard let observation,
+              let latestCPUHistorySample = observation.history(for: .cpuUtilization).last
+        else {
+            Issue.record("Expected an observation containing CPU history")
+            await engine.stop()
+            return
+        }
+
+        #expect(observation.snapshot.timestamp == latestCPUHistorySample.timestamp)
+        #expect(observation.snapshot.cpu?.utilization == latestCPUHistorySample.value)
+
+        await engine.stop()
+    }
+
+    @Test("Live dashboard feed maps one coherent engine observation")
+    @MainActor
+    func liveDashboardFeedMapsCoherentObservation() async {
+        let clock = SteppingClock()
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let engine = MetricsEngine(
+            cpuReader: SteppingCPUReader(),
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            networkReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            batteryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            temperatureReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            clock: clock,
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.setActiveMetrics([.cpu])
+        await engine.start()
+        let stream = LiveDashboardTickFeed(engine: engine).ticks()
+        var iterator = stream.makeAsyncIterator()
+
+        await fastScheduler.waitUntilIntervalsCount(1)
+        await slowScheduler.waitUntilIntervalsCount(1)
+        await clock.advance(by: 1)
+        await fastScheduler.advance()
+        await fastScheduler.waitUntilIntervalsCount(2)
+
+        var tick: DashboardTick?
+        for _ in 0..<2 {
+            guard let next = await iterator.next() else { break }
+            if !next.cpuHistory.isEmpty {
+                tick = next
+                break
+            }
+        }
+
+        guard let tick, let latestCPUHistoryValue = tick.cpuHistory.last else {
+            Issue.record("Expected the live feed to map CPU history")
+            await engine.stop()
+            return
+        }
+
+        #expect(tick.snapshot.cpu?.utilization == latestCPUHistoryValue)
         await engine.stop()
     }
 
