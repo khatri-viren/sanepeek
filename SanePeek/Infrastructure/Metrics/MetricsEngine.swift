@@ -76,6 +76,8 @@ actor MetricsEngine {
 
     private var stream: AsyncStream<MetricsSnapshot>?
     private var continuation: AsyncStream<MetricsSnapshot>.Continuation?
+    private var observationStream: AsyncStream<MetricsObservation>?
+    private var observationContinuation: AsyncStream<MetricsObservation>.Continuation?
 
     init(
         cpuReader: any CPUReader = LiveCPUReader(),
@@ -129,6 +131,7 @@ actor MetricsEngine {
         // the first samples can be emitted into a nil continuation and the UI waits for the
         // next cadence interval to see them.
         _ = snapshots()
+        _ = observations()
         if !hasPublishedFirstSnapshot, launchSignpostState == nil {
             launchSignpostState = signposter.beginInterval("Launch")
         }
@@ -158,6 +161,7 @@ actor MetricsEngine {
         isPaused = false
         cancelTasks()
         continuation?.finish()
+        observationContinuation?.finish()
     }
 
     func updateCadence(_ policy: CadencePolicy) {
@@ -252,6 +256,21 @@ actor MetricsEngine {
         )
         stream = newStream
         continuation = newContinuation
+        return newStream
+    }
+
+    /// Returns the coherent publication stream used by dashboard adapters. Each yielded value
+    /// contains the snapshot and every bounded history series from the same actor turn.
+    func observations() -> AsyncStream<MetricsObservation> {
+        if let observationStream {
+            return observationStream
+        }
+        let (newStream, newContinuation) = AsyncStream.makeStream(
+            of: MetricsObservation.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        observationStream = newStream
+        observationContinuation = newContinuation
         return newStream
     }
 
@@ -607,13 +626,26 @@ actor MetricsEngine {
         )
     }
 
+    private func combinedObservation(at timestamp: MetricTimestamp) -> MetricsObservation {
+        MetricsObservation(
+            snapshot: combinedSnapshot(at: timestamp),
+            histories: Dictionary(
+                uniqueKeysWithValues: MetricHistoryKind.allCases.map { kind in
+                    (kind, history[kind]?.samples ?? [])
+                }
+            )
+        )
+    }
+
     private func publish(at tick: MetricTimestamp) {
         guard tick.monotonicSeconds >= lastPublishedMonotonicSeconds else {
             logger.debug("Dropping out-of-order snapshot tick")
             return
         }
         lastPublishedMonotonicSeconds = tick.monotonicSeconds
-        continuation?.yield(combinedSnapshot(at: tick))
+        let observation = combinedObservation(at: tick)
+        continuation?.yield(observation.snapshot)
+        observationContinuation?.yield(observation)
 
         if !hasPublishedFirstSnapshot {
             hasPublishedFirstSnapshot = true

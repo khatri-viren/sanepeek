@@ -1,6 +1,5 @@
-/// Bridges a live `MetricsEngine` into the dashboard's `DashboardTick` shape,
-/// pairing each published snapshot with the bounded histories the engine
-/// already tracks for CPU, memory, network download, and GPU.
+/// Bridges coherent `MetricsEngine` observations into the dashboard's `DashboardTick` shape.
+/// Snapshot and histories arrive together; this adapter only performs semantic field mapping.
 @MainActor
 final class LiveDashboardTickFeed: DashboardTickFeed {
     private let engine: MetricsEngine
@@ -13,36 +12,24 @@ final class LiveDashboardTickFeed: DashboardTickFeed {
         AsyncStream { continuation in
             let engine = engine
             let task = Task {
-                let snapshots = await engine.snapshots()
+                let observations = await engine.observations()
                 await engine.start()
 
-                for await snapshot in snapshots {
-                    async let cpuHistory = engine.history(for: .cpuUtilization)
-                    async let cpuUserHistory = engine.history(for: .cpuUserUtilization)
-                    async let cpuSystemHistory = engine.history(for: .cpuSystemUtilization)
-                    async let memoryHistory = engine.history(for: .memoryUsedBytes)
-                    async let memoryAppHistory = engine.history(for: .memoryAppUtilization)
-                    async let memoryWiredHistory = engine.history(for: .memoryWiredUtilization)
-                    async let memoryCompressedHistory = engine.history(for: .memoryCompressedUtilization)
-                    async let networkDownloadHistory = engine.history(for: .networkDownloadBytesPerSecond)
-                    async let networkUploadHistory = engine.history(for: .networkUploadBytesPerSecond)
-                    async let gpuHistory = engine.history(for: .gpuUtilization)
-                    async let temperatureHistory = engine.history(for: .temperatureHottestCelsius)
-
+                for await observation in observations {
                     continuation.yield(
                         DashboardTick(
-                            snapshot: snapshot,
-                            cpuHistory: await cpuHistory.map(\.value),
-                            cpuUserHistory: await cpuUserHistory.map(\.value),
-                            cpuSystemHistory: await cpuSystemHistory.map(\.value),
-                            memoryHistory: await memoryHistory.map(\.value),
-                            memoryAppHistory: await memoryAppHistory.map(\.value),
-                            memoryWiredHistory: await memoryWiredHistory.map(\.value),
-                            memoryCompressedHistory: await memoryCompressedHistory.map(\.value),
-                            networkDownloadHistory: await networkDownloadHistory.map(\.value),
-                            networkUploadHistory: await networkUploadHistory.map(\.value),
-                            gpuHistory: await gpuHistory.map(\.value),
-                            temperatureHistory: await temperatureHistory.map(\.value)
+                            snapshot: observation.snapshot,
+                            cpuHistory: observation.history(for: .cpuUtilization).map(\.value),
+                            cpuUserHistory: observation.history(for: .cpuUserUtilization).map(\.value),
+                            cpuSystemHistory: observation.history(for: .cpuSystemUtilization).map(\.value),
+                            memoryHistory: observation.history(for: .memoryUsedBytes).map(\.value),
+                            memoryAppHistory: observation.history(for: .memoryAppUtilization).map(\.value),
+                            memoryWiredHistory: observation.history(for: .memoryWiredUtilization).map(\.value),
+                            memoryCompressedHistory: observation.history(for: .memoryCompressedUtilization).map(\.value),
+                            networkDownloadHistory: observation.history(for: .networkDownloadBytesPerSecond).map(\.value),
+                            networkUploadHistory: observation.history(for: .networkUploadBytesPerSecond).map(\.value),
+                            gpuHistory: observation.history(for: .gpuUtilization).map(\.value),
+                            temperatureHistory: observation.history(for: .temperatureHottestCelsius).map(\.value)
                         )
                     )
                 }
