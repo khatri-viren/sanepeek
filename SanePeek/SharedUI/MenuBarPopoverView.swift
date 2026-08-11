@@ -21,9 +21,6 @@ struct MenuBarPopoverView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var selectedMetric: MetricKind
 
-    /// Mirrors the dashboard's visual grouping (hero cards first, then the generic ones) so
-    /// the popup reads consistently with the full dashboard rather than declaration order.
-    private static let displayOrder: [MetricKind] = [.cpu, .memory, .temperature, .network, .storage, .battery, .gpu]
     /// Wide enough for the longest title/value pair ("Temperature" + "-40.0 °C") to sit on
     /// one line — at a narrower width "Temperature" wrapped mid-word.
     private static let rowListWidth: CGFloat = 210
@@ -91,7 +88,7 @@ struct MenuBarPopoverView: View {
 
     private var rowList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Self.displayOrder, id: \.self) { kind in
+            ForEach(MenuBarCatalog.popoverOrder, id: \.self) { kind in
                 if let card = viewModel.card(for: kind) {
                     Button {
                         select(kind)

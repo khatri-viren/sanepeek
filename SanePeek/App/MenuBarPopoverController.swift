@@ -73,10 +73,6 @@ nonisolated struct MenuBarPopoverCoordinator {
 /// has exactly one popup to close and re-anchor.
 @MainActor
 final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
-    private static let displayOrder: [MetricKind] = [
-        .cpu, .memory, .storage, .network, .battery, .gpu, .temperature
-    ]
-
     private var appState: AppState?
     private var statusItems: [MetricKind: NSStatusItem] = [:]
     private var kindsByButton: [ObjectIdentifier: MetricKind] = [:]
@@ -188,7 +184,7 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
     }
 
     private func syncStatusItems(for appState: AppState) {
-        let enabledKinds = Set(Self.displayOrder.filter {
+        let enabledKinds = Set(MenuBarCatalog.statusItemOrder.filter {
             appState.settingsStore.menuBarConfig(for: $0).isEnabled
         })
 
@@ -196,7 +192,7 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
             removeStatusItem(for: kind)
         }
 
-        for kind in Self.displayOrder where enabledKinds.contains(kind) {
+        for kind in MenuBarCatalog.statusItemOrder where enabledKinds.contains(kind) {
             let statusItem = statusItem(for: kind)
             update(statusItem, for: kind, appState: appState)
         }
@@ -238,7 +234,8 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
             fraction: card?.levelFraction,
             tint: card?.status?.tintColor
         )
-        let accessibilityLabel = card?.accessibilityLabel ?? "\(kind.menuBarAbbreviation), --"
+        let accessibilityLabel = card?.accessibilityLabel
+            ?? "\(MenuBarCatalog.descriptor(for: kind).abbreviation), --"
         button.toolTip = accessibilityLabel
         button.setAccessibilityLabel(accessibilityLabel)
         button.needsDisplay = true
