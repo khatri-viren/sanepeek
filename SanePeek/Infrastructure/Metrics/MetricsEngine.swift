@@ -190,7 +190,8 @@ actor MetricsEngine {
         lastActivityGeneration = generation
 
         let previousActivity = lastActivityState
-        guard previousActivity != activity else { return }
+        let activityAlreadyApplied = previousActivity == activity && isRunStateConsistent(with: activity)
+        guard !activityAlreadyApplied else { return }
         lastActivityState = activity
 
         switch activity {
@@ -222,6 +223,15 @@ actor MetricsEngine {
             {
                 refreshSlowMetrics()
             }
+        }
+    }
+
+    private func isRunStateConsistent(with activity: MonitoringActivityState) -> Bool {
+        switch activity {
+        case .paused:
+            isPaused && fastTask == nil && slowTask == nil
+        case .background, .foreground:
+            !isPaused && (fastTask != nil || slowTask != nil)
         }
     }
 

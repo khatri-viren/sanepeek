@@ -228,10 +228,7 @@ final class AppState {
             MainActor.assumeIsolated { self?.setDisplayUnavailable(false) }
         }
         let powerStateChanged = center.addObserver(
-            // Swift does not import NSProcessInfoPowerStateDidChangeNotification as a typed
-            // ProcessInfo member in this SDK; this is the Foundation notification's documented
-            // name.
-            forName: Notification.Name("NSProcessInfoPowerStateDidChangeNotification"),
+            forName: NSNotification.Name.NSProcessInfoPowerStateDidChange,
             object: ProcessInfo.processInfo,
             queue: .main
         ) { [weak self] _ in

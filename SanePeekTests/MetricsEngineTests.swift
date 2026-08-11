@@ -40,6 +40,38 @@ struct MetricsEngineTests {
         await engine.stop()
     }
 
+    @Test("Repeated pause activity repairs an externally started engine")
+    func repeatedPauseActivityRepairsExternallyStartedEngine() async {
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let engine = MetricsEngine(
+            cpuReader: QueueingReader(
+                results: Array(repeating: .available(CPUSnapshot(timestamp: .zero, utilization: 0.4)), count: 10)
+            ),
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            networkReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            batteryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            temperatureReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.reconcileMonitoringActivity(.paused, generation: 1)
+        await engine.start()
+        await fastScheduler.waitUntilIntervalsCount(1)
+
+        // The same desired state must still repair the run state when another caller started
+        // the engine outside the activity coordinator.
+        await engine.reconcileMonitoringActivity(.paused, generation: 2)
+        await engine.resume()
+
+        let resumed = await fastScheduler.waitUntilIntervalsCount(2, timeout: 0.05)
+        #expect(resumed)
+        await engine.stop()
+    }
+
     @Test("Fast and slow loops request cadence-specific intervals")
     func loopsRequestCadenceSpecificIntervals() async {
         let fastScheduler = StepScheduler()
@@ -521,13 +553,7 @@ struct MetricsEngineTests {
         await fastScheduler.advance()
         await fastScheduler.waitUntilIntervalsCount(2)
 
-        var observation: MetricsObservation?
-        while let next = await iterator.next() {
-            if !next.history(for: .cpuUtilization).isEmpty {
-                observation = next
-                break
-            }
-        }
+        let observation = await iterator.next()
 
         guard let observation,
               let latestCPUHistorySample = observation.history(for: .cpuUtilization).last
@@ -563,6 +589,7 @@ struct MetricsEngineTests {
         )
 
         await engine.setActiveMetrics([.cpu])
+        await engine.start()
         let stream = LiveDashboardTickFeed(engine: engine).ticks()
         var iterator = stream.makeAsyncIterator()
 
@@ -573,7 +600,8 @@ struct MetricsEngineTests {
         await fastScheduler.waitUntilIntervalsCount(2)
 
         var tick: DashboardTick?
-        while let next = await iterator.next() {
+        for _ in 0..<2 {
+            guard let next = await iterator.next() else { break }
             if !next.cpuHistory.isEmpty {
                 tick = next
                 break

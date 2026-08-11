@@ -60,6 +60,20 @@ struct MonitoringActivityPolicyTests {
         #expect(activity.activeMetrics == Set(MetricKind.allCases))
     }
 
+    @Test("Low Power Mode preserves a foreground cadence already at five seconds")
+    func lowPowerModePreservesFiveSecondForegroundCadence() {
+        let cadence = CadencePolicy(refreshRate: .fiveSeconds)
+        let activity = MonitoringActivityPolicy.resolve(
+            MonitoringActivityInputs(
+                isDashboardVisible: true,
+                isLowPowerModeEnabled: true,
+                foregroundCadence: cadence
+            )
+        )
+
+        #expect(activity == .foreground(cadence: cadence))
+    }
+
     @Test("A visible popup has the same full-coverage policy as the dashboard")
     func popupUsesFullCoverage() {
         let activity = MonitoringActivityPolicy.resolve(

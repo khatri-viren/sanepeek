@@ -117,7 +117,7 @@ nonisolated enum MonitoringActivityPolicy {
     }
 
     private static func lowPowerCadence(for cadence: CadencePolicy) -> CadencePolicy {
-        guard cadence.refreshRate.rawValue < RefreshRate.fiveSeconds.rawValue else {
+        guard cadence.refreshRate.interval < RefreshRate.fiveSeconds.interval else {
             return cadence
         }
         return CadencePolicy(refreshRate: .fiveSeconds)

@@ -13,7 +13,8 @@ final class LiveDashboardTickFeed: DashboardTickFeed {
             let engine = engine
             let task = Task {
                 let observations = await engine.observations()
-                await engine.start()
+                // AppState owns monitoring activity reconciliation; this adapter only bridges
+                // the engine's coherent publication into the dashboard value contract.
 
                 for await observation in observations {
                     continuation.yield(
