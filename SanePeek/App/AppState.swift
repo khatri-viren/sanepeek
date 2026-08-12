@@ -22,17 +22,22 @@ struct AppDependencies: Sendable {
     let fixtureSnapshot: MetricsSnapshot?
     let metricsEngine: MetricsEngine?
     let settingsDefaultsSuiteName: String?
+    /// Optional UI-test-only menu-bar configuration. When present, unspecified metrics are
+    /// disabled so each fixture launch starts from a deterministic status-item set.
+    let menuBarSeed: [MetricKind: MenuBarMetricConfig]?
 
     init(
         runtime: AppRuntime,
         fixtureSnapshot: MetricsSnapshot? = nil,
         metricsEngine: MetricsEngine? = nil,
-        settingsDefaultsSuiteName: String? = nil
+        settingsDefaultsSuiteName: String? = nil,
+        menuBarSeed: [MetricKind: MenuBarMetricConfig]? = nil
     ) {
         self.runtime = runtime
         self.fixtureSnapshot = fixtureSnapshot
         self.metricsEngine = metricsEngine
         self.settingsDefaultsSuiteName = settingsDefaultsSuiteName
+        self.menuBarSeed = menuBarSeed
     }
 
     static let live = Self(runtime: .live, metricsEngine: MetricsEngine())
@@ -62,19 +67,32 @@ struct AppDependencies: Sendable {
     }
 
     private func withSettingsDefaultsSuiteName(_ name: String?) -> Self {
-        Self(runtime: runtime, fixtureSnapshot: fixtureSnapshot, metricsEngine: metricsEngine, settingsDefaultsSuiteName: name)
+        Self(
+            runtime: runtime,
+            fixtureSnapshot: fixtureSnapshot,
+            metricsEngine: metricsEngine,
+            settingsDefaultsSuiteName: name,
+            menuBarSeed: menuBarSeed
+        )
     }
 
     /// UI tests can use `-uiTestFixture <name>` to force `.preview` runtime over a specific
     /// `MetricFixtures` scenario instead of `.live`. They can also pass
-    /// `-uiTestSettingsSuite <name>` for an isolated, resettable settings store.
+    /// `-uiTestSettingsSuite <name>` for an isolated, resettable settings store and
+    /// `-uiTestMenuBar cpu:number,memory:bar` for a deterministic status-item set.
     static func forLaunch(arguments: [String] = ProcessInfo.processInfo.arguments) -> Self {
         let settingsSuiteName = value(after: "-uiTestSettingsSuite", in: arguments)
+        let menuBarSeed = parseMenuBarSeed(value(after: "-uiTestMenuBar", in: arguments))
 
         guard let flagIndex = arguments.firstIndex(of: "-uiTestFixture"),
               arguments.indices.contains(flagIndex + 1)
         else {
-            return Self.live.withSettingsDefaultsSuiteName(settingsSuiteName)
+            return Self(
+                runtime: .live,
+                metricsEngine: Self.live.metricsEngine,
+                settingsDefaultsSuiteName: settingsSuiteName,
+                menuBarSeed: menuBarSeed
+            )
         }
 
         let snapshot: MetricsSnapshot
@@ -94,10 +112,38 @@ struct AppDependencies: Sendable {
         case "temperatureUnsupported":
             snapshot = MetricFixtures.temperatureUnsupported()
         default:
-            return Self.live.withSettingsDefaultsSuiteName(settingsSuiteName)
+            return Self(
+                runtime: .live,
+                metricsEngine: Self.live.metricsEngine,
+                settingsDefaultsSuiteName: settingsSuiteName,
+                menuBarSeed: menuBarSeed
+            )
         }
 
-        return Self(runtime: .preview, fixtureSnapshot: snapshot, settingsDefaultsSuiteName: settingsSuiteName)
+        return Self(
+            runtime: .preview,
+            fixtureSnapshot: snapshot,
+            settingsDefaultsSuiteName: settingsSuiteName,
+            menuBarSeed: menuBarSeed
+        )
+    }
+
+    private static func parseMenuBarSeed(_ encoded: String?) -> [MetricKind: MenuBarMetricConfig]? {
+        guard let encoded, !encoded.isEmpty else { return nil }
+
+        var result: [MetricKind: MenuBarMetricConfig] = [:]
+        for entry in encoded.split(separator: ",", omittingEmptySubsequences: false) {
+            let parts = entry.split(separator: ":", omittingEmptySubsequences: false)
+            guard parts.count == 2,
+                  let kind = MetricKind(rawValue: parts[0].trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let displayMode = MenuBarDisplayMode(rawValue: parts[1].trimmingCharacters(in: .whitespacesAndNewlines)),
+                  result[kind] == nil
+            else {
+                return nil
+            }
+            result[kind] = MenuBarMetricConfig(isEnabled: true, displayMode: displayMode)
+        }
+        return result.isEmpty ? nil : result
     }
 
     private static func value(after flag: String, in arguments: [String]) -> String? {
@@ -155,6 +201,14 @@ final class AppState {
     init(dependencies: AppDependencies = .live) {
         self.dependencies = dependencies
         let settingsStore = dependencies.makeSettingsStore()
+        if let menuBarSeed = dependencies.menuBarSeed {
+            for kind in MetricKind.allCases {
+                settingsStore.setMenuBarConfig(
+                    menuBarSeed[kind] ?? MenuBarMetricConfig(isEnabled: false, displayMode: .number),
+                    for: kind
+                )
+            }
+        }
         self.settingsStore = settingsStore
         self.metricsViewModel = MetricsViewModel(
             feed: dependencies.makeMetricsTickFeed(),

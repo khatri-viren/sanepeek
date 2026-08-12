@@ -83,6 +83,7 @@ struct MenuBarPopoverView: View {
         }
         .padding(16)
         .frame(width: 560)
+        .accessibilityIdentifier("monitor.window")
         // The AppKit popover supplies the panel; setting the hosting window's appearance keeps
         // the panel and SwiftUI foreground colors aligned with the app preference.
         .background(WindowAppearanceAccessor(colorScheme: appState.settingsStore.appearance.colorScheme))
@@ -103,7 +104,6 @@ struct MenuBarPopoverView: View {
                     // the icon/title/value glyphs.
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
-                    .accessibilityIdentifier("popup.metric.\(kind.rawValue)")
                 }
             }
 

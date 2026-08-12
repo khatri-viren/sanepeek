@@ -237,6 +237,7 @@ final class MenuBarPopoverController: NSObject, NSWindowDelegate {
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleNone
             button.sendAction(on: [.leftMouseUp])
+            button.setAccessibilityIdentifier("menuBar.metric.\(kind.rawValue)")
             kindsByButton[ObjectIdentifier(button)] = kind
         }
         statusItems[kind] = statusItem

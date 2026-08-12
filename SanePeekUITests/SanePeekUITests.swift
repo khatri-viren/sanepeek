@@ -14,14 +14,19 @@ final class SanePeekUITests: XCTestCase {
     }
 
     func testLaunchIsSilentWithoutFullWindow() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let harness = SanePeekUITestHarness()
+        defer { harness.cleanup() }
+        harness.launch()
 
-        XCTAssertEqual(app.windows.count, 0, "SanePeek should not create a full window at launch")
+        XCTAssertEqual(harness.app.windows.count, 0, "SanePeek should not create a full window at launch")
     }
 
     func testSettingsOpensFromTheStandardCommandAndUsesTheLargerPanel() throws {
-        let app = launchSettings()
+        let harness = SanePeekUITestHarness()
+        defer { harness.cleanup() }
+        harness.launch()
+        harness.openSettings()
+        let app = harness.app
 
         let settingsRoot = app.descendants(matching: .any)["settings.root"]
         XCTAssertTrue(settingsRoot.waitForExistence(timeout: 5))
@@ -44,10 +49,12 @@ final class SanePeekUITests: XCTestCase {
     }
 
     func testRefreshRateSettingPersistsAcrossRelaunch() throws {
-        let suiteName = "com.sanepeek.uitests.settings.\(UUID().uuidString)"
-        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let harness = SanePeekUITestHarness()
+        defer { harness.cleanup() }
+        let app = harness.app
 
-        let app = launchSettings(suiteName: suiteName)
+        harness.launch()
+        harness.openSettings()
         let refreshRatePicker = app.descendants(matching: .any)["settings.refreshRate"]
         XCTAssertTrue(refreshRatePicker.waitForExistence(timeout: 5))
 
@@ -56,10 +63,8 @@ final class SanePeekUITests: XCTestCase {
         XCTAssertTrue(fiveSecondsOption.waitForExistence(timeout: 5))
         fiveSecondsOption.click()
 
-        app.terminate()
-        app.launchArguments = ["-uiTestSettingsSuite", suiteName]
-        app.launch()
-        openSettings(in: app)
+        harness.relaunch()
+        harness.openSettings()
 
         let reopenedPicker = app.descendants(matching: .any)["settings.refreshRate"]
         XCTAssertTrue(reopenedPicker.waitForExistence(timeout: 5))
@@ -67,10 +72,12 @@ final class SanePeekUITests: XCTestCase {
     }
 
     func testAppearanceSettingChangesRenderedSettingsInterfaceAndPersists() throws {
-        let suiteName = "com.sanepeek.uitests.settings.\(UUID().uuidString)"
-        defer { UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName) }
+        let harness = SanePeekUITestHarness()
+        defer { harness.cleanup() }
+        let app = harness.app
 
-        let app = launchSettings(suiteName: suiteName)
+        harness.launch()
+        harness.openSettings()
         let settingsRoot = app.descendants(matching: .any)["settings.root"]
         XCTAssertTrue(settingsRoot.waitForExistence(timeout: 5))
         let appearancePicker = app.descendants(matching: .any)["settings.appearance"]
@@ -99,10 +106,8 @@ final class SanePeekUITests: XCTestCase {
         XCTAssertTrue(settingsRoot.exists, "Expected Settings to keep rendering after switching to System appearance")
 
         selectAppearance("Dark")
-        app.terminate()
-        app.launchArguments = ["-uiTestSettingsSuite", suiteName]
-        app.launch()
-        openSettings(in: app)
+        harness.relaunch()
+        harness.openSettings()
 
         let reopenedAppearance = app.descendants(matching: .any)["settings.appearance"]
         XCTAssertTrue(reopenedAppearance.waitForExistence(timeout: 5))
@@ -112,53 +117,21 @@ final class SanePeekUITests: XCTestCase {
         XCTAssertEqual(reopenedDarkOption.value as? Int, 1, "Expected Dark to remain selected after relaunch")
     }
 
-    /// Exercises the real `SMAppService.mainApp` registration path and leaves the system login
-    /// item disabled after the test, since this toggle has a genuine persistent system effect.
-    func testLaunchAtLoginRegistersAndUnregistersWithTheRealSystemService() throws {
-        let app = launchSettings()
-        let toggle = app.descendants(matching: .any)["settings.launchAtLogin"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
-
-        addTeardownBlock {
-            guard toggle.exists, (toggle.value as? Int) == 1 else { return }
-            toggle.click()
-            self.waitForValue(1, of: toggle, toBecome: 0)
-        }
-
-        XCTAssertEqual(toggle.value as? Int, 0, "Expected Launch at Login to start disabled")
-
-        toggle.click()
-        waitForValue(0, of: toggle, toBecome: 1)
-        XCTAssertEqual(toggle.value as? Int, 1, "Expected the toggle to reflect a successful registration")
-        XCTAssertFalse(app.descendants(matching: .any)["settings.launchAtLoginStatus"].exists)
-
-        toggle.click()
-        waitForValue(1, of: toggle, toBecome: 0)
-        XCTAssertEqual(toggle.value as? Int, 0, "Expected the toggle to reflect a successful unregistration")
+    /// The real registration path mutates persistent macOS state and is manual-only. Ordinary
+    /// state coverage lives in the injected launch-at-login service tests.
+    func testLaunchAtLoginRegistrationIsManualOnly() throws {
+        throw XCTSkip("Manual-only: mutates the real macOS login-item registration")
     }
 
     func testCommandCommaOpensSettingsWithoutAHostWindow() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let harness = SanePeekUITestHarness()
+        defer { harness.cleanup() }
+        harness.launch()
 
-        XCTAssertEqual(app.windows.count, 0, "SanePeek should remain windowless until Settings is requested")
-        openSettings(in: app)
+        XCTAssertEqual(harness.app.windows.count, 0, "SanePeek should remain windowless until Settings is requested")
+        harness.openSettings()
 
-        XCTAssertTrue(app.descendants(matching: .any)["settings.appearance"].waitForExistence(timeout: 5))
-    }
-
-    private func launchSettings(suiteName: String? = nil) -> XCUIApplication {
-        let app = XCUIApplication()
-        if let suiteName {
-            app.launchArguments = ["-uiTestSettingsSuite", suiteName]
-        }
-        app.launch()
-        openSettings(in: app)
-        return app
-    }
-
-    private func openSettings(in app: XCUIApplication) {
-        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(harness.element("settings.appearance").waitForExistence(timeout: 5))
     }
 
     private func waitForValue(_ from: Int, of element: XCUIElement, toBecome to: Int, timeout: TimeInterval = 5) {

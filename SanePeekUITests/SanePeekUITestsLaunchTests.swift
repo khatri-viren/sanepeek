@@ -17,12 +17,13 @@ final class SanePeekUITestsLaunchTests: XCTestCase {
     }
 
     func testLaunchStaysSilentWithoutFullWindow() throws {
-        let app = XCUIApplication()
-        app.launch()
+        let harness = SanePeekUITestHarness()
+        defer { harness.cleanup() }
+        harness.launch()
 
-        XCTAssertEqual(app.windows.count, 0)
+        XCTAssertEqual(harness.app.windows.count, 0)
 
-        let attachment = XCTAttachment(screenshot: app.screenshot())
+        let attachment = XCTAttachment(screenshot: harness.app.screenshot())
         attachment.name = "Silent launch"
         attachment.lifetime = .keepAlways
         add(attachment)
