@@ -34,10 +34,11 @@ final class MetricsViewModel {
 
     private func start() {
         guard consumeTask == nil else { return }
+        let feed = feed
         consumeTask = Task { [weak self] in
-            guard let self else { return }
-            for await tick in self.feed.ticks() {
-                self.apply(tick)
+            for await tick in feed.ticks() {
+                guard !Task.isCancelled else { return }
+                self?.apply(tick)
             }
         }
     }

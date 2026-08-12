@@ -772,6 +772,119 @@ struct MetricsEngineTests {
         await engine.stop()
     }
 
+    @Test("Changing active metrics while running preserves skipped values until they are reactivated")
+    func changingActiveMetricsPreservesSkippedValues() async {
+        let fastScheduler = StepScheduler()
+        let cpuReader = QueueingReader<CPUSnapshot>(
+            results: [
+                .available(CPUSnapshot(timestamp: .zero, utilization: 0.4)),
+                .available(CPUSnapshot(timestamp: .zero, utilization: 0.8))
+            ]
+        )
+        let networkReader = QueueingReader<NetworkSnapshot>(
+            results: [
+                .available(NetworkSnapshot(timestamp: .zero, downloadBytesPerSecond: 10)),
+                .available(NetworkSnapshot(timestamp: .zero, downloadBytesPerSecond: 20))
+            ]
+        )
+        let engine = MetricsEngine(
+            cpuReader: cpuReader,
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            networkReader: networkReader,
+            batteryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            temperatureReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            fastScheduler: fastScheduler,
+            slowScheduler: StepScheduler()
+        )
+
+        await engine.setActiveMetrics([.cpu, .network])
+        await engine.start()
+        await fastScheduler.waitUntilIntervalsCount(1)
+
+        await engine.setActiveMetrics([.cpu])
+        await fastScheduler.advance()
+        await fastScheduler.waitUntilIntervalsCount(2)
+
+        let afterNetworkPause = await engine.currentSnapshot()
+        #expect(await cpuReader.callCount == 2)
+        #expect(await networkReader.callCount == 1)
+        #expect(afterNetworkPause.cpu?.utilization == 0.8)
+        #expect(afterNetworkPause.network?.downloadBytesPerSecond == 10)
+
+        await engine.setActiveMetrics([.network])
+        await fastScheduler.advance()
+        await fastScheduler.waitUntilIntervalsCount(3)
+
+        let afterCPUPause = await engine.currentSnapshot()
+        #expect(await cpuReader.callCount == 2)
+        #expect(await networkReader.callCount == 2)
+        #expect(afterCPUPause.cpu?.utilization == 0.8)
+        #expect(afterCPUPause.network?.downloadBytesPerSecond == 20)
+
+        await engine.stop()
+    }
+
+    @Test("Reconciliation applies background scope and restores full foreground coverage")
+    func reconciliationChangesCoverageAndCadence() async {
+        let fastScheduler = StepScheduler()
+        let slowScheduler = StepScheduler()
+        let cpuReader = QueueingReader<CPUSnapshot>(
+            results: Array(repeating: .available(CPUSnapshot(timestamp: .zero, utilization: 0.4)), count: 4)
+        )
+        let networkReader = QueueingReader<NetworkSnapshot>(
+            results: [.available(NetworkSnapshot(timestamp: .zero, downloadBytesPerSecond: 10))]
+        )
+        let storageReader = QueueingReader<StorageSnapshot>(
+            results: [.available(StorageSnapshot(timestamp: .zero, usedBytes: 20))]
+        )
+        let batteryReader = QueueingReader<BatterySnapshot>(
+            results: [.available(BatterySnapshot(timestamp: .zero, percentage: 0.8))]
+        )
+        let engine = MetricsEngine(
+            cpuReader: cpuReader,
+            memoryReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            storageReader: storageReader,
+            networkReader: networkReader,
+            batteryReader: batteryReader,
+            gpuReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            temperatureReader: QueueingReader(results: [.unavailable(.unsupported)]),
+            fastScheduler: fastScheduler,
+            slowScheduler: slowScheduler
+        )
+
+        await engine.reconcileMonitoringActivity(
+            .background(
+                activeMetrics: [.cpu],
+                cadence: CadencePolicy(refreshRate: .fiveSeconds)
+            ),
+            generation: 1
+        )
+        await fastScheduler.waitUntilIntervalsCount(1)
+        await slowScheduler.waitUntilIntervalsCount(1)
+
+        #expect(await cpuReader.callCount == 1)
+        #expect(await networkReader.callCount == 0)
+        #expect(await storageReader.callCount == 0)
+        #expect(await fastScheduler.requestedIntervals == [5])
+
+        await engine.reconcileMonitoringActivity(
+            .foreground(cadence: CadencePolicy(refreshRate: .oneSecond)),
+            generation: 2
+        )
+        await fastScheduler.waitUntilIntervalsCount(2)
+        await slowScheduler.waitUntilIntervalsCount(2)
+
+        #expect(await networkReader.callCount == 1)
+        #expect(await storageReader.callCount == 1)
+        #expect(await batteryReader.callCount == 1)
+        #expect(await fastScheduler.requestedIntervals == [5, 1])
+        #expect((await engine.currentSnapshot()).storage?.usedBytes == 20)
+
+        await engine.stop()
+    }
+
     @Test("MetricsEngine samples all six metrics within a reasonable time budget")
     func samplingCostStaysWithinBudget() async {
         let fastScheduler = StepScheduler()
