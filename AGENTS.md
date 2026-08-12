@@ -68,7 +68,9 @@ can filter them.
 
 - Run the narrowest relevant validation for the change by default (for example, a focused
   test target or test filter plus `git diff --check`). Do not run the full Xcode test suite
-  unless the user explicitly requests it or explicitly changes this rule.
+  when completing a task, creating a commit, or pushing a branch. Run the full test suite
+  only as an explicit pre-pull-request validation, or when the user explicitly requests it
+  or explicitly changes this rule.
 - Before considering a change complete, report exactly which validation ran and whether it
   passed. If broader validation is not run, say so plainly.
 - Do not commit or push changes to this repository without the user's explicit request for
