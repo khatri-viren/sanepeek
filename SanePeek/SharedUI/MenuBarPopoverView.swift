@@ -8,25 +8,31 @@ import SwiftUI
 /// Each row doubles as a tab: selecting one drives `PopoverMetricChartView` on the right, so
 /// the list and the chart live in one side-by-side popup instead of two separate concepts.
 ///
-/// Its AppKit owner reports visibility to `AppState`; this SwiftUI view is created only while
-/// that one shared popover is presented.
+/// Its AppKit owner reports visibility to `AppState`. The selected detail is owned by that
+/// controller so a menu-bar handoff can update this live view without recreating its window.
 struct MenuBarPopoverView: View {
     let appState: AppState
-    /// The status item that opened the shared popover. It seeds the first selected metric.
-    let kind: MetricKind
+    let selection: MenuBarDetailSelection
+    let onSelectedMetricChange: (MetricKind) -> Void
+    let onOpenSettings: () -> Void
 
     @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var selectedMetric: MetricKind
 
     /// Wide enough for the longest title/value pair ("Temperature" + "-40.0 °C") to sit on
     /// one line — at a narrower width "Temperature" wrapped mid-word.
     private static let rowListWidth: CGFloat = 210
 
-    init(appState: AppState, kind: MetricKind) {
+    init(
+        appState: AppState,
+        selection: MenuBarDetailSelection,
+        onSelectedMetricChange: @escaping (MetricKind) -> Void = { _ in },
+        onOpenSettings: @escaping () -> Void = {}
+    ) {
         self.appState = appState
-        self.kind = kind
-        _selectedMetric = State(initialValue: kind)
+        self.selection = selection
+        self.onSelectedMetricChange = onSelectedMetricChange
+        self.onOpenSettings = onOpenSettings
     }
 
     private var viewModel: MetricsViewModel { appState.metricsViewModel }
@@ -40,11 +46,15 @@ struct MenuBarPopoverView: View {
                 Spacer()
 
                 Button {
+                    onOpenSettings()
                     openSettings()
                 } label: {
                     Image(systemName: "gearshape")
                 }
                 .buttonStyle(.plain)
+                // A menu-bar popover becomes key when it opens, which otherwise leaves the
+                // first header button with a persistent blue keyboard-focus treatment.
+                .focusEffectDisabled()
                 .help("Settings")
                 .accessibilityLabel("Settings")
                 .accessibilityIdentifier("popup.settings")
@@ -55,6 +65,7 @@ struct MenuBarPopoverView: View {
                     Image(systemName: "power")
                 }
                 .buttonStyle(.plain)
+                .focusEffectDisabled()
                 .help("Quit SanePeek")
                 .accessibilityLabel("Quit SanePeek")
                 .accessibilityIdentifier("popup.quit")
@@ -84,7 +95,7 @@ struct MenuBarPopoverView: View {
                     Button {
                         select(kind)
                     } label: {
-                        CompactMetricRowView(model: card, isSelected: selectedMetric == kind)
+                        CompactMetricRowView(model: card, isSelected: selection.kind == kind)
                     }
                     .buttonStyle(.plain)
                     // The row's visual content includes flexible empty space. Keep the
@@ -106,13 +117,13 @@ struct MenuBarPopoverView: View {
     /// data change — the latter is what let Swift Charts' own per-mark animation take over.
     private var chartStage: some View {
         ZStack(alignment: .topLeading) {
-            if let selectedCard = viewModel.card(for: selectedMetric) {
+            if let selectedCard = viewModel.card(for: selection.kind) {
                 PopoverMetricChartView(
                     model: selectedCard,
                     viewModel: viewModel,
                     formatter: appState.settingsStore.formatter
                 )
-                .id(selectedMetric)
+                .id(selection.kind)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .transition(chartTransition)
             }
@@ -130,14 +141,15 @@ struct MenuBarPopoverView: View {
     }
 
     private func select(_ kind: MetricKind) {
-        guard kind != selectedMetric else { return }
-        withAnimation(reduceMotion ? .easeInOut(duration: 0.15) : .easeOut(duration: 0.18)) {
-            selectedMetric = kind
-        }
+        guard kind != selection.kind else { return }
+        onSelectedMetricChange(kind)
     }
 
 }
 
 #Preview("Menu Bar Popover") {
-    MenuBarPopoverView(appState: AppState(dependencies: .preview), kind: .cpu)
+    MenuBarPopoverView(
+        appState: AppState(dependencies: .preview),
+        selection: MenuBarDetailSelection(kind: .cpu)
+    )
 }

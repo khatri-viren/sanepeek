@@ -52,6 +52,18 @@ struct AppStatePopupTests {
         #expect(!appState.isPopupVisible(kind: .cpu))
     }
 
+    @Test("Selecting another detail preserves the active popup session")
+    func selectingAnotherDetailPreservesTheActivePopupSession() {
+        let appState = makeAppState()
+        let sessionID = appState.popupDidAppear(kind: .cpu)
+
+        appState.popupDidSelect(kind: .memory, sessionID: sessionID)
+
+        #expect(appState.isPopupVisible(kind: .memory))
+        appState.popupDidDisappear(kind: .memory, sessionID: sessionID)
+        #expect(!appState.isPopupVisible(kind: .memory))
+    }
+
     /// `.preview` carries no `MetricsEngine`, so `recomputePollingState` returns early and
     /// these assertions exercise the visibility bookkeeping alone. The defaults suite is
     /// per-test so nothing here touches the real app's settings.

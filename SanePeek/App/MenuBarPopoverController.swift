@@ -2,13 +2,12 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// Serializes status-item clicks through one popover. `MenuBarExtra(.window)` creates one
-/// system-managed window per metric, which lets rapid clicks race at the Control Center scene
-/// layer. Keeping one popover means a click always either presents immediately or becomes the
-/// next pending presentation after the current one closes.
+/// Commands emitted by the status-item state machine. A direct handoff deliberately has no
+/// dismiss/show phase: the shared monitor window moves first, then its SwiftUI detail changes.
 nonisolated enum MenuBarPopoverAction: Equatable {
-    case present(MetricKind)
-    case dismiss
+    case show(MetricKind)
+    case dismiss(MetricKind)
+    case handoff(from: MetricKind, to: MetricKind)
     case none
 }
 
@@ -27,67 +26,94 @@ struct MenuBarRefreshCoalescer {
     }
 }
 
+/// Tracks the menu-bar anchor separately from the detail selected inside the full glance view.
+/// The anchor owns the pressed status-item highlight; an internal row click must not alter it.
 nonisolated struct MenuBarPopoverCoordinator {
     private(set) var activeKind: MetricKind?
-    private var pendingKind: MetricKind?
-    private var isClosing = false
 
-    mutating func select(_ kind: MetricKind, popoverIsPresented: Bool) -> MenuBarPopoverAction {
-        if isClosing {
-            pendingKind = kind
-            return .none
-        }
-
-        guard popoverIsPresented else {
+    mutating func select(_ kind: MetricKind, panelIsVisible: Bool) -> MenuBarPopoverAction {
+        guard panelIsVisible else {
             activeKind = kind
-            return .present(kind)
+            return .show(kind)
         }
 
-        isClosing = true
-        pendingKind = activeKind == kind ? nil : kind
-        return .dismiss
-    }
-
-    mutating func popoverDidClose() -> MenuBarPopoverAction {
-        isClosing = false
-        activeKind = nil
-
-        guard let pendingKind else { return .none }
-        self.pendingKind = nil
-        activeKind = pendingKind
-        return .present(pendingKind)
-    }
-
-    mutating func cancelPresentation(for kind: MetricKind) -> Bool {
-        if pendingKind == kind {
-            pendingKind = nil
+        guard let activeKind else {
+            self.activeKind = kind
+            return .show(kind)
         }
-        guard activeKind == kind else { return false }
-        isClosing = true
-        return true
+
+        guard activeKind != kind else {
+            self.activeKind = nil
+            return .dismiss(kind)
+        }
+
+        self.activeKind = kind
+        return .handoff(from: activeKind, to: kind)
+    }
+
+    mutating func dismiss() -> MetricKind? {
+        defer { activeKind = nil }
+        return activeKind
     }
 }
 
-/// Owns the individual status items and their single shared `NSPopover`. The labels keep the
-/// existing rasterized rendering path, while presentation moves out of SwiftUI scenes so AppKit
-/// has exactly one popup to close and re-anchor.
+/// Retained by the menu-bar controller for the lifetime of its cached window. Mutating this
+/// observable value keeps the existing SwiftUI tree alive, which is required for chart removal
+/// and insertion transitions to animate instead of appearing as a root-view replacement.
+@Observable
 @MainActor
-final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
+final class MenuBarDetailSelection {
+    var kind: MetricKind
+
+    init(kind: MetricKind) {
+        self.kind = kind
+    }
+}
+
+/// A borderless `NSWindow` can still become key, so controls respond on their first click and
+/// Escape reaches the responder chain. It intentionally cannot become the app's main document
+/// window: this is transient monitor chrome, not a dashboard.
+@MainActor
+private final class MenuBarMonitorWindow: NSWindow {
+    var onCancel: (() -> Void)?
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func cancelOperation(_ sender: Any?) {
+        onCancel?()
+    }
+}
+
+/// Owns the individual status items and one shared monitor window. `NSPopover` cannot reanchor
+/// without serializing its close and show animations; a cached window gives the metric handoff a
+/// direct, deterministic path while retaining normal AppKit show/hide behavior.
+@MainActor
+final class MenuBarPopoverController: NSObject, NSWindowDelegate {
+    private static let panelSize = NSSize(width: 560, height: 324)
+    private static let panelGap: CGFloat = 3
+
     private var appState: AppState?
     private var statusItems: [MetricKind: NSStatusItem] = [:]
     private var kindsByButton: [ObjectIdentifier: MetricKind] = [:]
     private var coordinator = MenuBarPopoverCoordinator()
-    private let popover = NSPopover()
+    private var monitorWindow: MenuBarMonitorWindow?
+    private var hostingController: NSHostingController<MenuBarPopoverView>?
+    private var detailSelection: MenuBarDetailSelection?
     private var activeSession: (kind: MetricKind, id: UInt64)?
+    private var isPanelVisible = false
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
+    private var lifecycleObservers: [NSObjectProtocol] = []
+    /// A click on a status item can make the monitor window resign key just before AppKit sends
+    /// that button's action. Suppress that one resign callback so the action remains the source
+    /// of truth for same-item toggle and direct-handoff behavior.
+    private var ignoresNextResignKey = false
+
     /// A metrics tick updates several observed card properties independently. Queueing one
     /// observation refresh per property makes the first tick rebuild and rasterize the same
     /// status item repeatedly, which is especially expensive in an unoptimized Debug build.
     private var observationRefreshCoalescer = MenuBarRefreshCoalescer()
-    /// This is owned by the controller rather than read from `NSPopover.isShown`: a transient
-    /// popover can start closing before the next status-button action arrives, but the delegate
-    /// has not reported the close yet. Treat it as present until `popoverDidClose` so that click
-    /// is queued behind the close instead of racing a second `show` call.
-    private var isPopoverPresented = false
 
     /// The current status-item set. Kept module-internal so the AppKit ownership boundary can
     /// be regression-tested without reaching into `NSStatusBar`'s process-global state.
@@ -101,42 +127,28 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
         statusItems.mapValues(\.autosaveName)
     }
 
-    /// Exposes the hand-off motion policy for the focused AppKit configuration test.
-    var popoverAnimates: Bool {
-        popover.animates
-    }
-
-    /// Short enough to still read as an instant hand-off between status items, long enough that
-    /// open/close doesn't feel like a hard cut. Deliberately a manual opacity fade on the content
-    /// view rather than `NSPopover.animates` — that system animation runs on its own fixed
-    /// internal timing and ignores the ambient `NSAnimationContext` duration, so it can't be sped
-    /// up this way. The coordinator's close-notification wait (see `popoverDidClose`) already
-    /// serializes rapid clicks correctly regardless of this duration.
-    private static let transitionDuration: TimeInterval = 0.05
-
     override init() {
         super.init()
-        popover.behavior = .transient
-        // The system animation ignores our duration override (see `transitionDuration`); a
-        // manual fade in `presentPopover`/`closePopover` replaces it instead.
-        popover.animates = false
-        popover.delegate = self
     }
 
     /// Releases process-global AppKit status items when the owner is no longer used. This is
     /// also useful for tests, where NSStatusBar.system survives between test cases.
     func tearDown() {
+        dismissPanel()
+        removeEventMonitors()
+        removeLifecycleObservers()
         appState = nil
-        if popover.isShown {
-            popover.performClose(nil)
-        }
         for statusItem in statusItems.values {
             NSStatusBar.system.removeStatusItem(statusItem)
         }
         statusItems.removeAll()
         kindsByButton.removeAll()
+        monitorWindow?.orderOut(nil)
+        monitorWindow = nil
+        hostingController = nil
+        detailSelection = nil
         activeSession = nil
-        isPopoverPresented = false
+        isPanelVisible = false
         coordinator = MenuBarPopoverCoordinator()
         observationRefreshCoalescer.markCompleted()
     }
@@ -144,19 +156,9 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
     func configure(appState: AppState) {
         guard self.appState !== appState else { return }
 
-        if popover.isShown {
-            popover.performClose(nil)
-        }
-        for statusItem in statusItems.values {
-            NSStatusBar.system.removeStatusItem(statusItem)
-        }
-        statusItems.removeAll()
-        kindsByButton.removeAll()
-        activeSession = nil
-        isPopoverPresented = false
-        coordinator = MenuBarPopoverCoordinator()
-
+        tearDown()
         self.appState = appState
+        installLifecycleObservers()
         observeApplicationState()
     }
 
@@ -169,9 +171,6 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
             // Observation callbacks can arrive several times during one metrics tick. Hop to
             // the next main-queue turn so all mutations from that tick are coalesced into one
             // status-item sync instead of repeatedly rendering the same label image.
-            // AppState mutations are MainActor-isolated, so Observation invokes this callback
-            // on the main actor. Mark the refresh pending before queueing the hop; otherwise
-            // every callback reaches the main queue before any callback can observe the flag.
             MainActor.assumeIsolated {
                 guard let self, self.observationRefreshCoalescer.schedule() else { return }
                 DispatchQueue.main.async { [weak self] in
@@ -204,10 +203,6 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
         }
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        // AppKit's generated autosave names are process-local (`Item-3`, `Item-4`, …). They are
-        // not stable across launches, and its documentation requires explicit, unique names when
-        // an app owns multiple status items. Without them, status-bar visibility can be restored
-        // against the wrong metric, making Settings appear to allow only one enabled item.
         statusItem.autosaveName = "com.sanepeek.status-item.\(kind.rawValue)"
         statusItem.isVisible = true
         if let button = statusItem.button {
@@ -242,17 +237,12 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
     }
 
     private func removeStatusItem(for kind: MetricKind) {
+        if coordinator.activeKind == kind {
+            dismissPanel()
+        }
         guard let statusItem = statusItems.removeValue(forKey: kind) else { return }
-
         if let button = statusItem.button {
             kindsByButton.removeValue(forKey: ObjectIdentifier(button))
-        }
-        if coordinator.cancelPresentation(for: kind) {
-            if isPopoverPresented {
-                closePopover()
-            } else {
-                _ = coordinator.popoverDidClose()
-            }
         }
         NSStatusBar.system.removeStatusItem(statusItem)
     }
@@ -262,83 +252,266 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
               let kind = kindsByButton[ObjectIdentifier(button)]
         else { return }
 
-        perform(coordinator.select(kind, popoverIsPresented: isPopoverPresented))
+        perform(coordinator.select(kind, panelIsVisible: isPanelVisible))
     }
 
     private func perform(_ action: MenuBarPopoverAction) {
         switch action {
-        case .present(let kind):
-            presentPopover(for: kind)
-        case .dismiss:
-            closePopover()
+        case .show(let kind):
+            showPanel(for: kind)
+        case .dismiss(let kind):
+            dismissPanel(highlightedKind: kind)
+        case .handoff(let from, let to):
+            handoffPanel(from: from, to: to)
         case .none:
             break
         }
     }
 
-    private func presentPopover(for kind: MetricKind) {
-        guard coordinator.activeKind == kind,
-              !isPopoverPresented,
+    private func showPanel(for kind: MetricKind) {
+        guard !isPanelVisible,
               let appState,
               let button = statusItems[kind]?.button
         else { return }
 
-        isPopoverPresented = true
+        let window = makeMonitorWindow(for: appState, initialMetric: kind)
+        place(window, below: button)
         activeSession = (kind, appState.popupDidAppear(kind: kind))
-        let hostingController = NSHostingController(
-            rootView: MenuBarPopoverView(appState: appState, kind: kind)
-        )
-        popover.contentViewController = hostingController
         button.highlight(true)
-
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            return
-        }
-        // Fade the content in ourselves rather than via `NSPopover.animates`; see
-        // `transitionDuration`. The view must start invisible before `show` actually presents
-        // the window, or the first frame flashes at full opacity.
-        hostingController.view.alphaValue = 0
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.transitionDuration
-            context.timingFunction = CAMediaTimingFunction(name: .linear)
-            hostingController.view.animator().alphaValue = 1
-        }
+        isPanelVisible = true
+        installEventMonitors()
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
-    private func closePopover() {
-        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-              let contentView = popover.contentViewController?.view
-        else {
-            popover.performClose(nil)
-            return
-        }
-        NSAnimationContext.runAnimationGroup({ context in
-            context.duration = Self.transitionDuration
-            context.timingFunction = CAMediaTimingFunction(name: .linear)
-            contentView.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            self?.popover.performClose(nil)
-        })
+    private func handoffPanel(from previousKind: MetricKind, to kind: MetricKind) {
+        guard isPanelVisible,
+              let window = monitorWindow,
+              let button = statusItems[kind]?.button
+        else { return }
+
+        // Reposition synchronously so the content transition runs at the new anchor rather than
+        // making the shell appear to slide or hop between menu-bar items.
+        place(window, below: button)
+        statusItems[previousKind]?.button?.highlight(false)
+        button.highlight(true)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        updateSelectedMetric(kind, animated: true)
     }
 
-    func popoverDidClose(_ notification: Notification) {
-        isPopoverPresented = false
+    private func dismissPanel() {
+        guard let highlightedKind = coordinator.dismiss() else { return }
+        dismissPanel(highlightedKind: highlightedKind)
+    }
+
+    private func dismissPanel(highlightedKind: MetricKind) {
+        guard isPanelVisible else { return }
+        isPanelVisible = false
+        statusItems[highlightedKind]?.button?.highlight(false)
+        monitorWindow?.orderOut(nil)
+        removeEventMonitors()
         if let activeSession {
-            statusItems[activeSession.kind]?.button?.highlight(false)
             appState?.popupDidDisappear(kind: activeSession.kind, sessionID: activeSession.id)
             self.activeSession = nil
         }
+    }
 
-        let nextAction = coordinator.popoverDidClose()
-        guard case .present = nextAction else { return }
-
-        // AppKit finishes tearing down the previous popover at the end of this turn. Defer the
-        // next anchor so fast clicks coalesce to the newest pending item instead of reopening the
-        // popup on the item that just closed.
-        DispatchQueue.main.async { [weak self] in
-            self?.perform(nextAction)
+    private func makeMonitorWindow(for appState: AppState, initialMetric: MetricKind) -> MenuBarMonitorWindow {
+        if let monitorWindow {
+            updateSelectedMetric(initialMetric, animated: false)
+            return monitorWindow
         }
+
+        let detailSelection = MenuBarDetailSelection(kind: initialMetric)
+
+        let window = MenuBarMonitorWindow(
+            contentRect: NSRect(origin: .zero, size: Self.panelSize),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.level = .floating
+        window.animationBehavior = .default
+        window.delegate = self
+        window.collectionBehavior = [.moveToActiveSpace]
+        window.onCancel = { [weak self] in self?.dismissPanel() }
+
+        let rootView = MenuBarPopoverView(
+            appState: appState,
+            selection: detailSelection,
+            onSelectedMetricChange: { [weak self] kind in self?.updateSelectedMetric(kind, animated: true) },
+            onOpenSettings: { [weak self] in self?.showSettings() }
+        )
+        let hostingController = NSHostingController(rootView: rootView)
+        window.contentView = monitorSurface(containing: hostingController.view)
+        window.setContentSize(Self.panelSize)
+
+        monitorWindow = window
+        self.hostingController = hostingController
+        self.detailSelection = detailSelection
+        return window
+    }
+
+    /// `NSPopover` adopted the macOS liquid-glass surface automatically. A standalone window
+    /// does not, so use the public AppKit glass view directly instead of approximating it with
+    /// an opaque `NSVisualEffectView` material. The fallback keeps the window usable on macOS 15.
+    private func monitorSurface(containing contentView: NSView) -> NSView {
+        let frame = NSRect(origin: .zero, size: Self.panelSize)
+        if #available(macOS 26.0, *) {
+            let glassView = NSGlassEffectView(frame: frame)
+            // `.regular` intentionally draws a pronounced glass contour. This monitor surface
+            // needs to read as a light, transparent lens over the desktop instead, so use the
+            // system's clear style rather than simulating transparency with a custom overlay.
+            glassView.style = .clear
+            glassView.cornerRadius = 24
+
+            // `NSGlassEffectView` supplies the native blurred liquid-glass backdrop itself. Keep
+            // the tint below opaque so that backdrop remains visible, while still grounding the
+            // monitor in proper black/light surfaces instead of a neutral grey.
+            glassView.tintColor = NSColor(name: nil) { appearance in
+                if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                    return .black.withAlphaComponent(0.65)
+                }
+                return .white.withAlphaComponent(0.65)
+            }
+            glassView.contentView = contentView
+            return glassView
+        }
+
+        let materialView = NSVisualEffectView(frame: frame)
+        materialView.material = .popover
+        materialView.blendingMode = .behindWindow
+        materialView.state = .active
+        materialView.wantsLayer = true
+        materialView.layer?.cornerRadius = 24
+        materialView.layer?.masksToBounds = true
+        materialView.addSubview(contentView)
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: materialView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: materialView.trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: materialView.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: materialView.bottomAnchor)
+        ])
+        return materialView
+    }
+
+    private func updateSelectedMetric(_ kind: MetricKind, animated: Bool) {
+        guard let detailSelection else { return }
+        if animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            withAnimation(.easeInOut(duration: 0.22)) {
+                detailSelection.kind = kind
+            }
+        } else {
+            detailSelection.kind = kind
+        }
+
+        guard var activeSession else { return }
+        activeSession.kind = kind
+        self.activeSession = activeSession
+        appState?.popupDidSelect(kind: kind, sessionID: activeSession.id)
+    }
+
+    private func place(_ window: NSWindow, below button: NSStatusBarButton) {
+        guard let buttonWindow = button.window else { return }
+        let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let buttonCenter = NSPoint(x: buttonFrame.midX, y: buttonFrame.midY)
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(buttonCenter) })
+            ?? buttonWindow.screen
+            ?? NSScreen.main
+        guard let screen else { return }
+
+        let visibleFrame = screen.visibleFrame
+        let width = Self.panelSize.width
+        let x = min(max(buttonFrame.midX - (width / 2), visibleFrame.minX), visibleFrame.maxX - width)
+        let y = max(visibleFrame.minY, buttonFrame.minY - Self.panelGap - Self.panelSize.height)
+        window.setFrame(NSRect(x: x, y: y, width: width, height: Self.panelSize.height), display: false, animate: false)
+    }
+
+    private func showSettings() {
+        dismissPanel()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func installEventMonitors() {
+        guard localMouseMonitor == nil, globalMouseMonitor == nil else { return }
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            guard let self, self.isPanelVisible else { return event }
+            if self.isStatusItemWindow(event.window) {
+                self.ignoresNextResignKey = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.ignoresNextResignKey = false
+                }
+                return event
+            }
+            guard event.window !== self.monitorWindow else { return event }
+            self.dismissPanel()
+            return event
+        }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.dismissPanel()
+            }
+        }
+    }
+
+    private func removeEventMonitors() {
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+            self.localMouseMonitor = nil
+        }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+            self.globalMouseMonitor = nil
+        }
+    }
+
+    private func isStatusItemWindow(_ window: NSWindow?) -> Bool {
+        statusItems.values.contains { $0.button?.window === window }
+    }
+
+    private func installLifecycleObservers() {
+        guard lifecycleObservers.isEmpty else { return }
+        let notificationCenter = NotificationCenter.default
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        let distributedCenter = DistributedNotificationCenter.default()
+
+        lifecycleObservers = [
+            notificationCenter.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.dismissPanel() }
+            },
+            workspaceCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.dismissPanel() }
+            },
+            workspaceCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.dismissPanel() }
+            },
+            distributedCenter.addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.dismissPanel() }
+            }
+        ]
+    }
+
+    private func removeLifecycleObservers() {
+        lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
+        lifecycleObservers.forEach(NSWorkspace.shared.notificationCenter.removeObserver)
+        lifecycleObservers.forEach(DistributedNotificationCenter.default().removeObserver)
+        lifecycleObservers.removeAll()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        guard !ignoresNextResignKey else { return }
+        dismissPanel()
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        dismissPanel()
+        return false
     }
 }

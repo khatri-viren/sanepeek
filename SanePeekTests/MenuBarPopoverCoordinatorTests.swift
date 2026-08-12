@@ -3,16 +3,15 @@ import Testing
 
 @testable import SanePeek
 
-@Suite("Menu bar popover hand-off")
+@Suite("Menu bar monitor window hand-off")
 struct MenuBarPopoverCoordinatorTests {
-    @Test("A rapid hand-off presents only the last clicked metric")
+    @Test("A rapid hand-off immediately targets the latest clicked metric")
     func rapidHandoffUsesTheLastClick() {
         var coordinator = MenuBarPopoverCoordinator()
 
-        #expect(coordinator.select(.cpu, popoverIsPresented: false) == .present(.cpu))
-        #expect(coordinator.select(.memory, popoverIsPresented: true) == .dismiss)
-        #expect(coordinator.select(.temperature, popoverIsPresented: true) == .none)
-        #expect(coordinator.popoverDidClose() == .present(.temperature))
+        #expect(coordinator.select(.cpu, panelIsVisible: false) == .show(.cpu))
+        #expect(coordinator.select(.memory, panelIsVisible: true) == .handoff(from: .cpu, to: .memory))
+        #expect(coordinator.select(.temperature, panelIsVisible: true) == .handoff(from: .memory, to: .temperature))
         #expect(coordinator.activeKind == .temperature)
     }
 
@@ -20,9 +19,8 @@ struct MenuBarPopoverCoordinatorTests {
     func selectingActiveItemClosesIt() {
         var coordinator = MenuBarPopoverCoordinator()
 
-        #expect(coordinator.select(.cpu, popoverIsPresented: false) == .present(.cpu))
-        #expect(coordinator.select(.cpu, popoverIsPresented: true) == .dismiss)
-        #expect(coordinator.popoverDidClose() == .none)
+        #expect(coordinator.select(.cpu, panelIsVisible: false) == .show(.cpu))
+        #expect(coordinator.select(.cpu, panelIsVisible: true) == .dismiss(.cpu))
         #expect(coordinator.activeKind == nil)
     }
 
@@ -49,10 +47,6 @@ struct MenuBarPopoverCoordinatorTests {
 
         #expect(controller.installedStatusItemKinds == [.cpu])
         #expect(controller.statusItemAutosaveNames[.cpu] == "com.sanepeek.status-item.cpu")
-        // The system's popover animation is always off; open/close motion is a manual opacity
-        // fade on the content view instead (see `MenuBarPopoverController.transitionDuration`).
-        #expect(!controller.popoverAnimates)
-
         appState.settingsStore.setMenuBarConfig(
             MenuBarMetricConfig(isEnabled: true, displayMode: .number),
             for: .memory

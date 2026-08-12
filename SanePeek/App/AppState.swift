@@ -114,7 +114,7 @@ final class AppState {
     let dependencies: AppDependencies
     let settingsStore: SettingsStore
 
-    /// The single shared ticking view model. Every menu-bar status item and compact popover
+    /// The single shared ticking view model. Every menu-bar status item and compact monitor window
     /// reads this instance rather than constructing its own metrics stream.
     let metricsViewModel: MetricsViewModel
 
@@ -132,8 +132,8 @@ final class AppState {
     /// newer lifecycle event.
     private var monitoringActivityGeneration: UInt64 = 0
 
-    /// The shared AppKit popover's active session. Keeping the opening ID means a delayed close
-    /// notification cannot clear a newer presentation after a rapid status-item hand-off.
+    /// The shared AppKit monitor window's active session. Keeping the opening ID ensures a stale
+    /// dismissal cannot clear a newer presentation after a rapid status-item hand-off.
     private var visiblePopupSession: (kind: MetricKind, id: UInt64)?
     private var nextPopupSessionID: UInt64 = 0
 
@@ -146,7 +146,7 @@ final class AppState {
     @ObservationIgnored
     private nonisolated(unsafe) var displayAvailabilityObservers: [NSObjectProtocol] = []
 
-    /// Held only while the compact popover is open. Accessory apps remain subject to App Nap
+    /// Held only while the compact monitor window is open. Accessory apps remain subject to App Nap
     /// even while a menu-bar popover is on screen, which can stretch `Task.sleep`-driven timers
     /// beyond their nominal cadence and permanently reduce the chart history density.
     @ObservationIgnored
@@ -220,7 +220,7 @@ final class AppState {
         recomputePollingState()
     }
 
-    /// Wired to the shared menu-bar popover's lifecycle. Opening it widens polling to every
+    /// Wired to the shared menu-bar monitor window's lifecycle. Opening it widens polling to every
     /// metric for as long as it is open — it is a full glance view, not scoped to the enabled
     /// menu-bar subset.
     @discardableResult
@@ -240,6 +240,14 @@ final class AppState {
 
         visiblePopupSession = nil
         recomputePollingState()
+    }
+
+    /// Changes the detail represented by an already-visible monitor window without ending its
+    /// live-view session. Reanchoring and internal row selection must keep expanded polling and
+    /// the existing App Nap activity token continuous.
+    func popupDidSelect(kind: MetricKind, sessionID: UInt64) {
+        guard visiblePopupSession?.id == sessionID else { return }
+        visiblePopupSession = (kind, sessionID)
     }
 
     func isPopupVisible(kind: MetricKind) -> Bool {

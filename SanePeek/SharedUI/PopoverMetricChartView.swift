@@ -8,7 +8,7 @@ import SwiftUI
 /// a sparkline for the metrics that use one — via the shared chart views, so
 /// there's one implementation per shape rather than a second, flatter set living here.
 ///
-/// Deliberately draws no background of its own: the shared AppKit popover provides the panel.
+/// Deliberately draws no background of its own: the shared AppKit monitor window provides the panel.
 /// A second material layer would flatten that surface, so content sits directly on it and uses
 /// `.primary`/`.secondary` colors instead, staying legible in both appearances.
 struct PopoverMetricChartView: View {
