@@ -51,7 +51,7 @@ struct MenuBarCatalogTests {
         ])
     }
 
-    @Test("The popup and settings orders preserve dashboard grouping")
+    @Test("The popup and settings orders preserve monitoring grouping")
     func popupAndSettingsOrdersAreStable() {
         let expected: [MetricKind] = [.cpu, .memory, .temperature, .network, .storage, .battery, .gpu]
 

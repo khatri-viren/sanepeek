@@ -5,11 +5,11 @@
 
 import SwiftUI
 
-struct SettingsView: View {
+struct SettingsView<Updater: UpdaterService>: View {
     @Bindable var settingsStore: SettingsStore
     /// Owned by the app, not this view: recreating the updater would restart it and drop
     /// any check already running, and Settings is opened and closed constantly.
-    let updater: UpdaterController
+    let updater: Updater
 
     var body: some View {
         Form {
@@ -78,7 +78,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
+        // Settings is SanePeek's only full window now, so give the grouped form a little more
+        // breathing room while keeping its height content-driven.
+        .frame(width: 480)
         .padding()
         .navigationTitle("Settings")
         .dynamicTypeSize(.large ... .xxxLarge)

@@ -166,7 +166,7 @@ actor MetricsEngine {
 
     func updateCadence(_ policy: CadencePolicy) {
         guard cadencePolicy != policy else { return }
-        // Debug, not info: this fires on every popup/dashboard open and close (full-coverage
+        // Debug, not info: this fires on every popup open and close (full-coverage
         // cadence swaps in and out), not on a noteworthy lifecycle transition like start/stop.
         logger.debug("MetricsEngine updating cadence")
         cadencePolicy = policy
@@ -269,7 +269,7 @@ actor MetricsEngine {
         return newStream
     }
 
-    /// Returns the coherent publication stream used by dashboard adapters. Each yielded value
+    /// Returns the coherent publication stream used by metrics presentation adapters. Each yielded value
     /// contains the snapshot and every bounded history series from the same actor turn.
     func observations() -> AsyncStream<MetricsObservation> {
         if let observationStream {

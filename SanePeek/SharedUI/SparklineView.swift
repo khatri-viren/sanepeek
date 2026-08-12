@@ -33,7 +33,7 @@ struct SparklineView: View {
     let values: [Double]
     let color: Color
     /// When supplied, the sparkline gets the same leading gridlines and value labels as the
-    /// popup's CPU and Memory charts. Dashboard sparklines leave this nil to stay compact.
+    /// popup's CPU and Memory charts. Compact sparklines leave this nil to stay compact.
     let axisLabel: ((Double) -> String)?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion

@@ -27,7 +27,7 @@ struct CPUCardView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(model.accessibilityLabel)
         .accessibilityValue(model.accessibilityValue)
-        .accessibilityIdentifier("dashboard.card.\(model.id.rawValue)")
+        .accessibilityIdentifier("metrics.card.\(model.id.rawValue)")
     }
 
     private var header: some View {
@@ -110,7 +110,7 @@ struct CPUCardView: View {
 
     /// The user/system stack, shared with the menu bar popup so both render CPU history
     /// identically. `axisLabel` is nil here — the legend column beside the chart already
-    /// gives the scale, so the dashboard shows gridlines alone.
+    /// gives the scale, so the compact chart shows gridlines alone.
     ///
     /// `showsIdle` fills the rest of each bar up to 100%, matching the "Idle" legend swatch,
     /// so the bar's full height reads as the whole sample rather than stopping short. The

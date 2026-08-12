@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-12T20:03:50+05:30",
+  "configuration": "Debug",
+  "destination": "platform=macOS",
+  "architecture": "arm64",
+  "xcodebuildCommand": "xcodebuild test -project SanePeek.xcodeproj -scheme SanePeek -configuration Debug -destination 'platform=macOS' -only-testing:SanePeekPerformanceTests -enablePerformanceTestsDiagnostics NO -test-timeouts-enabled YES -default-test-execution-time-allowance 120 -maximum-test-execution-time-allowance 300",
+  "iterations": 5,
+  "measurement": "median of XCTest measurements",
+  "budgets": {
+    "maxPercentRegression": 20,
+    "ordinaryCorrectnessTestsEnforceBudget": false
+  },
+  "tests": {
+    "testMetricsEngineFastAndSlowSamplingAndMergeCost": {
+      "clockSeconds": 0.000371624,
+      "cpuSeconds": 0.000887322,
+      "cyclesKilo": 2.844395,
+      "peakPhysicalMemoryKilobytes": 90933.632
+    },
+    "testMetricsEngineActiveMetricFilteringCost": {
+      "clockSeconds": 0.0086592,
+      "cpuSeconds": 0.012030794,
+      "cyclesKilo": 36.950192,
+      "instructionsKilo": 93.186247
+    },
+    "testMetricsViewModelAppliesACompleteBoundedTick": {
+      "clockSeconds": 0.001254723,
+      "cpuSeconds": 0.000464817,
+      "cyclesKilo": 1.462524,
+      "peakPhysicalMemoryKilobytes": 90966.4
+    },
+    "testMenuBarLabelImageGenerationForNumberAndBarModes": {
+      "clockSeconds": 0.396740805,
+      "cpuSeconds": 0.48916895,
+      "cyclesKilo": 1529373.428,
+      "peakPhysicalMemoryKilobytes": 99813.76,
+      "sampleCount": 700
+    },
+    "testMonitorWindowContentUpdateAndMetricHandoffCost": {
+      "clockSeconds": 0.013237014,
+      "cpuSeconds": 0.009040992,
+      "cyclesKilo": 27.371753,
+      "peakPhysicalMemoryKilobytes": 94276.032
+    }
+  },
+  "notes": [
+    "Readers, feeds, settings, and active metric selections are deterministic fixtures.",
+    "The menu-bar label measurement renders both number and bar modes across 700 deterministic inputs.",
+    "The monitor measurement uses preview content and isolated defaults; it is not a hardware or live-user-settings benchmark.",
+    "XCTest performance measurements are baselines and budgets are reviewed separately from ordinary correctness-test pass/fail results.",
+    "Release profiling and multi-hour/day idle observation remain manual release-signoff evidence."
+  ]
+}

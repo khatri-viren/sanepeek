@@ -29,7 +29,7 @@ struct StackedHistoryChart: View {
     var remainderColor: Color?
     var domain: ClosedRange<Double> = 0...1
     /// Gridline positions. Labels are drawn on the leading edge only when `axisLabel` is
-    /// set — the dashboard's hero cards pass nil for gridlines alone, while the popup
+    /// set — the compact chart passes nil for gridlines alone, while the popup
     /// labels them, since its charts have no legend column beside them to give scale.
     var axisValues: [Double] = [0, 0.5, 1.0]
     var axisLabel: ((Double) -> String)?
@@ -103,7 +103,7 @@ struct StackedHistoryChart: View {
 }
 
 /// The Network card's chart shape: two series mirrored from a shared zero baseline
-/// (download up, upload down), shared between the dashboard's hero card and the popup.
+/// (download up, upload down), used by the popup.
 struct BidirectionalHistoryChart: View {
     let upSeries: MetricChartSeries
     let downSeries: MetricChartSeries

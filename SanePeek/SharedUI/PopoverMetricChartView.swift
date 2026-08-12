@@ -3,17 +3,17 @@ import SwiftUI
 /// The menu bar popup's right-hand detail panel: title, big value, and the selected metric's
 /// history chart.
 ///
-/// Renders each metric with the *same* chart the dashboard uses for it — the stacked
+/// Renders each metric with its presentation chart — the stacked
 /// user/system/idle and App/Wired/Compressed/Free breakdowns, the mirrored network chart, and
-/// a sparkline for the metrics whose dashboard card uses one — via the shared chart views, so
+/// a sparkline for the metrics that use one — via the shared chart views, so
 /// there's one implementation per shape rather than a second, flatter set living here.
 ///
-/// Deliberately draws no background of its own: the shared AppKit popover provides the panel.
+/// Deliberately draws no background of its own: the shared AppKit monitor window provides the panel.
 /// A second material layer would flatten that surface, so content sits directly on it and uses
 /// `.primary`/`.secondary` colors instead, staying legible in both appearances.
 struct PopoverMetricChartView: View {
     let model: MetricCardModel
-    let viewModel: DashboardViewModel
+    let viewModel: MetricsViewModel
     let formatter: MetricFormatter
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -29,7 +29,7 @@ struct PopoverMetricChartView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .accessibilityElement(children: .ignore)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(model.accessibilityLabel)
         .accessibilityValue(model.accessibilityValue)
     }
@@ -100,13 +100,13 @@ struct PopoverMetricChartView: View {
         }
     }
 
-    /// Mirrors the dashboard's choice of chart per metric rather than inventing a popup-only
-    /// one, so a metric reads the same in both places.
+    /// Keeps the chart choice consistent per metric rather than inventing a popup-only
+    /// representation.
     @ViewBuilder
     private var chart: some View {
         switch model.id {
         case .cpu:
-            // No idle/free remainder band here, unlike the dashboard: at the popup's size
+            // No idle/free remainder band here: at the popup's size
             // it filled most of every bar and crowded the load the chart is actually about.
             // The fixed 0...100% axis still makes the unused headroom readable.
             CPUCardView.chart(for: viewModel.cpuDetail, accentColor: model.accentColor, axisLabel: percentageAxisLabel, showsIdle: false)
@@ -121,7 +121,7 @@ struct PopoverMetricChartView: View {
                 axisLabel: { value in axisLabel(value) }
             )
         case .gpu, .storage, .battery:
-            // These render as a plain trend on the dashboard too — there's a single value
+            // These render as a plain trend — there's a single value
             // here, not a breakdown that sums to a whole.
             SparklineView(
                 values: Array(model.sparklineValues.suffix(MetricChartLayout.historyWindowSize)),
@@ -194,8 +194,8 @@ struct PopoverMetricChartView: View {
 #Preview("CPU") {
     let appState = AppState(dependencies: .preview)
     return PopoverMetricChartView(
-        model: appState.dashboardViewModel.cpuCard,
-        viewModel: appState.dashboardViewModel,
+        model: appState.metricsViewModel.cpuCard,
+        viewModel: appState.metricsViewModel,
         formatter: MetricFormatter()
     )
     .padding()

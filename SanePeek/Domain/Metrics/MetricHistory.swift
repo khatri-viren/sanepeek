@@ -1,6 +1,6 @@
 import Foundation
 
-/// Shared defaults for the bounded histories that back the dashboard and popup charts.
+/// Shared defaults for the bounded histories that back the compact popup charts.
 ///
 /// The UI displays the most recent 60 samples. The retention window is intentionally a little
 /// longer than 60 seconds because the foreground polling timer is nominally 1 Hz but can wake

@@ -22,7 +22,7 @@ nonisolated enum MetricCardMapping {
     private static let temperatureCriticalCelsius = 95.0
     /// Temperature has no natural 0...1 scale, so its `levelFraction` fills against the
     /// same displayed range `TemperatureGaugeView`'s dial sweeps, keeping the menu bar bar
-    /// and the dashboard gauge in agreement about what "full" means.
+    /// and the compact metric presentation in agreement about what "full" means.
     private static let temperatureScaleMinCelsius = 30.0
     private static let temperatureScaleMaxCelsius = 105.0
 

@@ -58,7 +58,7 @@ struct SanePeekTests {
 
     @Test("Metric fixtures provide a complete OS-independent snapshot")
     func metricFixturesProvideCompleteSnapshot() {
-        let snapshot = MetricFixtures.dashboard(at: .zero)
+        let snapshot = MetricFixtures.baseline(at: .zero)
 
         #expect(snapshot.timestamp == .zero)
         #expect(snapshot.cpu?.availability == .available)

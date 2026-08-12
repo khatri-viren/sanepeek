@@ -1,6 +1,14 @@
 import Sparkle
 import SwiftUI
 
+@MainActor
+protocol UpdaterService: AnyObject {
+    var canCheckForUpdates: Bool { get }
+    var currentVersion: String { get }
+
+    func checkForUpdates()
+}
+
 /// Owns the Sparkle updater and exposes just enough of it for the UI to drive.
 ///
 /// SanePeek is distributed as a direct download rather than through the App Store, so nothing
@@ -12,7 +20,7 @@ import SwiftUI
 /// restart the updater and drop any check already in flight.
 @MainActor
 @Observable
-final class UpdaterController {
+final class UpdaterController: UpdaterService {
     private let controller: SPUStandardUpdaterController
 
     /// Mirrors the updater's own gate for the menu item's enabled state — Sparkle refuses

@@ -31,12 +31,12 @@ struct MonitoringActivityPolicyTests {
         )
     }
 
-    @Test("A visible dashboard widens monitoring to all metrics at the foreground cadence")
-    func dashboardUsesFullCoverageAndForegroundCadence() {
+    @Test("A visible popup widens monitoring to all metrics at the foreground cadence")
+    func popupUsesFullCoverageAndForegroundCadence() {
         let foregroundCadence = CadencePolicy(refreshRate: .twoSeconds)
         let activity = MonitoringActivityPolicy.resolve(
             MonitoringActivityInputs(
-                isDashboardVisible: true,
+                isPopupVisible: true,
                 enabledMenuBarMetrics: [.cpu],
                 foregroundCadence: foregroundCadence
             )
@@ -50,7 +50,7 @@ struct MonitoringActivityPolicyTests {
     func lowPowerModeClampsForegroundCadence() {
         let activity = MonitoringActivityPolicy.resolve(
             MonitoringActivityInputs(
-                isDashboardVisible: true,
+                isPopupVisible: true,
                 isLowPowerModeEnabled: true,
                 foregroundCadence: CadencePolicy(refreshRate: .oneSecond)
             )
@@ -65,7 +65,7 @@ struct MonitoringActivityPolicyTests {
         let cadence = CadencePolicy(refreshRate: .fiveSeconds)
         let activity = MonitoringActivityPolicy.resolve(
             MonitoringActivityInputs(
-                isDashboardVisible: true,
+                isPopupVisible: true,
                 isLowPowerModeEnabled: true,
                 foregroundCadence: cadence
             )
@@ -74,7 +74,7 @@ struct MonitoringActivityPolicyTests {
         #expect(activity == .foreground(cadence: cadence))
     }
 
-    @Test("A visible popup has the same full-coverage policy as the dashboard")
+    @Test("A visible popup uses full-coverage monitoring")
     func popupUsesFullCoverage() {
         let activity = MonitoringActivityPolicy.resolve(
             MonitoringActivityInputs(
@@ -117,7 +117,7 @@ struct MonitoringActivityPolicyTests {
     func unavailableDisplayPausesMonitoring() {
         let activity = MonitoringActivityPolicy.resolve(
             MonitoringActivityInputs(
-                isDashboardVisible: true,
+                isPopupVisible: true,
                 enabledMenuBarMetrics: Set(MetricKind.allCases),
                 isDisplayAvailable: false
             )

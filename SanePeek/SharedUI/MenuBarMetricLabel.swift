@@ -172,6 +172,12 @@ struct MenuBarLabelImage: View {
         renderCache[kind] = (key, image)
         return image
     }
+
+    /// Keeps performance iterations independent without exposing the render cache to the app.
+    @MainActor
+    static func resetRenderCacheForTesting() {
+        renderCache.removeAll()
+    }
 }
 
 /// A single battery-style level bar: a rounded outline that fills in proportion to the metric's

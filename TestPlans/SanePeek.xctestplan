@@ -1,0 +1,42 @@
+{
+  "configurations" : [
+    {
+      "id" : "debug",
+      "name" : "Debug"
+    },
+    {
+      "id" : "release",
+      "name" : "Release"
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : false,
+    "defaultTestExecutionTimeAllowance" : 120,
+    "maximumTestExecutionTimeAllowance" : 300,
+    "testTimeoutsEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:SanePeek.xcodeproj",
+        "identifier" : "B18722E9301F2A3D00720531",
+        "name" : "SanePeekTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:SanePeek.xcodeproj",
+        "identifier" : "B18722F3301F2A3D00720531",
+        "name" : "SanePeekUITests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:SanePeek.xcodeproj",
+        "identifier" : "B187241F301F2A3D00720531",
+        "name" : "SanePeekPerformanceTests"
+      }
+    }
+  ],
+  "version" : 1
+}

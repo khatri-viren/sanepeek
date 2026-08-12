@@ -183,7 +183,7 @@ struct SMCSensorKeysTests {
 /// can only assert conditionally: it skips when no sensors are readable, which is the correct
 /// outcome on an unknown Mac *and* on a sandboxed build, and those two are indistinguishable
 /// from inside the process.
-@Suite("SMC hardware read")
+@Suite("SMC hardware read", .tags(.hardwareRequired))
 struct SMCTemperatureAdapterHardwareTests {
     @Test("Readings from real sensors are plausible die temperatures")
     func readsPlausibleTemperatures() {
