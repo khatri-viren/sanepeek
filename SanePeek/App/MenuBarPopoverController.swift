@@ -127,6 +127,32 @@ final class MenuBarPopoverController: NSObject, NSWindowDelegate {
         statusItems.mapValues(\.autosaveName)
     }
 
+    /// Whether the shared monitor window is currently presented. The status-item action and
+    /// lifecycle tests use the same selection path as AppKit without reaching into window state.
+    var isMonitorWindowVisible: Bool {
+        isPanelVisible
+    }
+
+    /// The detail currently represented by the shared monitor window, if it exists.
+    var selectedMetricKind: MetricKind? {
+        detailSelection?.kind
+    }
+
+    /// The shared window's current frame, useful for validating that a handoff keeps one window
+    /// and reanchors it rather than creating a second panel.
+    var monitorWindowFrame: NSRect? {
+        monitorWindow?.frame
+    }
+
+    /// Applies the same selection state machine used by an AppKit status-item action. Keeping
+    /// this at the controller boundary makes the shared-window behavior deterministic to test.
+    @discardableResult
+    func selectStatusItem(_ kind: MetricKind) -> Bool {
+        guard statusItems[kind] != nil else { return false }
+        perform(coordinator.select(kind, panelIsVisible: isPanelVisible))
+        return true
+    }
+
     override init() {
         super.init()
     }
