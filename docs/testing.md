@@ -58,7 +58,7 @@ xcodebuild test \
 
 UI tests launch isolated defaults suites and deterministic preview fixtures. The harness
 uses bounded waits, terminates the application, and asserts that both the app process and
-the suite defaults are cleaned up. UI jobs run serially because the menu-bar and settings
+the suite defaults are cleaned up. Run UI tests serially because the menu-bar and settings
 journeys share system-level application surfaces. The launch-at-login interaction remains
 manual-only when the operating system does not expose a reliable test control; the fake
 service and disabled-state tests cover normal automated behavior.
@@ -89,12 +89,16 @@ tests do not fail on noisy wall-clock measurements.
 
 ## Diagnostics and flake handling
 
-All suites enable XCTest timeouts and collect diagnostics on failure. Result bundles and
-logs should be retained by CI rather than automatically retried, so a flaky failure keeps
-its first-failure evidence. When investigating a failure, inspect the `.xcresult` bundle,
-test diagnostics, application log, and the test's deterministic fixture before changing a
-timeout. Cleanup assertions are part of the UI harness and should identify leaked app
-processes or persistent test defaults at the failing test's cleanup line.
+All suites enable XCTest timeouts and collect diagnostics on failure. Testing is local-only;
+do not add automatic retries, so a flaky failure keeps its first-failure evidence. When
+investigating a failure, inspect the `.xcresult` bundle, test diagnostics, application log,
+and the test's deterministic fixture before changing a timeout. Cleanup assertions are
+part of the UI harness and should identify leaked app processes or persistent test defaults
+at the failing test's cleanup line.
+
+The repository does not run the test suite through GitHub Actions. Use the commands in this
+document from a local macOS checkout and retain result bundles locally when diagnosing a
+failure. The separate release workflow is unaffected.
 
 ## Release rehearsal
 
