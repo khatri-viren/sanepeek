@@ -27,7 +27,7 @@ struct NetworkCardView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(model.accessibilityLabel)
         .accessibilityValue(model.accessibilityValue)
-        .accessibilityIdentifier("dashboard.card.\(model.id.rawValue)")
+        .accessibilityIdentifier("metrics.card.\(model.id.rawValue)")
     }
 
     private var header: some View {
@@ -91,7 +91,7 @@ struct NetworkCardView: View {
 
     /// The mirrored download/upload chart, shared with the menu bar popup so both render
     /// network history identically. `axisLabel` is nil here — the Download/Upload value
-    /// columns above the chart already give the scale, so the dashboard shows the zero
+    /// columns above the chart already give the scale, so the compact chart shows the zero
     /// baseline alone.
     static func chart(for detail: NetworkCardDetail?, accentColor: Color, axisLabel: ((Double) -> String)? = nil) -> some View {
         let downloadHistory = Array((detail?.downloadHistory ?? []).suffix(MetricChartLayout.historyWindowSize))

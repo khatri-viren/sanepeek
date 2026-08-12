@@ -78,7 +78,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
+        // Settings is SanePeek's only full window now, so give the grouped form a little more
+        // breathing room while keeping its height content-driven.
+        .frame(width: 480)
         .padding()
         .navigationTitle("Settings")
         .dynamicTypeSize(.large ... .xxxLarge)

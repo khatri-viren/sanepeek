@@ -79,7 +79,7 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
     private var coordinator = MenuBarPopoverCoordinator()
     private let popover = NSPopover()
     private var activeSession: (kind: MetricKind, id: UInt64)?
-    /// A dashboard tick updates several observed card properties independently. Queueing one
+    /// A metrics tick updates several observed card properties independently. Queueing one
     /// observation refresh per property makes the first tick rebuild and rasterize the same
     /// status item repeatedly, which is especially expensive in an unoptimized Debug build.
     private var observationRefreshCoalescer = MenuBarRefreshCoalescer()
@@ -166,7 +166,7 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
         withObservationTracking {
             syncStatusItems(for: appState)
         } onChange: { [weak self] in
-            // Observation callbacks can arrive several times during one dashboard tick. Hop to
+            // Observation callbacks can arrive several times during one metrics tick. Hop to
             // the next main-queue turn so all mutations from that tick are coalesced into one
             // status-item sync instead of repeatedly rendering the same label image.
             // AppState mutations are MainActor-isolated, so Observation invokes this callback
@@ -225,7 +225,7 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
     private func update(_ statusItem: NSStatusItem, for kind: MetricKind, appState: AppState) {
         guard let button = statusItem.button else { return }
 
-        let card = appState.dashboardViewModel.card(for: kind)
+        let card = appState.metricsViewModel.card(for: kind)
         let displayMode = appState.settingsStore.menuBarConfig(for: kind).displayMode
         button.image = MenuBarLabelImage.renderedImage(
             kind: kind,
@@ -340,21 +340,5 @@ final class MenuBarPopoverController: NSObject, NSPopoverDelegate {
         DispatchQueue.main.async { [weak self] in
             self?.perform(nextAction)
         }
-    }
-}
-
-/// Installs the AppKit controller from the pre-created dashboard scene. Unlike a `MenuBarExtra`,
-/// this bridge does not build a popup until a status item is clicked.
-struct MenuBarPopoverControllerInstaller: NSViewRepresentable {
-    let controller: MenuBarPopoverController
-    let appState: AppState
-
-    func makeNSView(context: Context) -> NSView {
-        controller.configure(appState: appState)
-        return NSView()
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        controller.configure(appState: appState)
     }
 }

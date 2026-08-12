@@ -2,9 +2,9 @@ import Foundation
 
 /// Ticks a baseline snapshot forward deterministically (sine-based variation,
 /// not randomness) so preview and fixture-driven UI-test runs have something
-/// to animate. `LiveDashboardTickFeed` is the equivalent for `.live` runtime.
+/// to animate. `LiveMetricsTickFeed` is the equivalent for `.live` runtime.
 @MainActor
-final class FixtureDashboardTickFeed: DashboardTickFeed {
+final class FixtureMetricsTickFeed: MetricsTickFeed {
     private let interval: TimeInterval
     private let baseline: MetricsSnapshot
     private static let historyLimit = MetricHistoryDefaults.sampleCapacity
@@ -21,7 +21,7 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
         self.baseline = baseline
     }
 
-    func ticks() -> AsyncStream<DashboardTick> {
+    func ticks() -> AsyncStream<MetricsTick> {
         AsyncStream { continuation in
             let task = Task { @MainActor in
                 var tickIndex = 0
@@ -76,7 +76,7 @@ final class FixtureDashboardTickFeed: DashboardTickFeed {
                     }
 
                     continuation.yield(
-                        DashboardTick(
+                        MetricsTick(
                             snapshot: snapshot,
                             cpuHistory: cpuHistory,
                             cpuUserHistory: cpuUserHistory,

@@ -8,23 +8,8 @@ complexity, or resource usage of traditional monitoring tools.
 
 ## Screenshots
 
-SanePeek keeps the important system metrics one glance away, whether you prefer
-compact indicators or full numeric readings in the menu bar.
-
-<p align="center">
-  <img src="docs/screenshots/overview-cpu.png" alt="SanePeek CPU dashboard" width="900">
-</p>
-
-<table>
-  <tr>
-    <td><img src="docs/screenshots/memory.png" alt="SanePeek memory dashboard" width="100%"></td>
-    <td><img src="docs/screenshots/network.png" alt="SanePeek network dashboard" width="100%"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/storage.png" alt="SanePeek storage dashboard" width="100%"></td>
-    <td><img src="docs/screenshots/temperature.png" alt="SanePeek temperature dashboard" width="100%"></td>
-  </tr>
-</table>
+SanePeek stays in the menu bar: choose compact indicators or full numeric readings,
+then click any metric for its compact history popover.
 
 ### Flexible menu bar monitoring
 
@@ -46,12 +31,13 @@ memory, storage, network, battery, and temperature.
 
 - **Menu bar items** — a live number or level-bar reading for any metric you enable,
   right in the menu bar. Pick per-metric which ones show and how.
-- **Glance popup** — click a menu bar item for a Control Center–style popup: every
-  metric as a tab, with its own history chart, one click away.
-- **Dashboard** — a full window with a card for every metric: CPU, memory, storage,
-  network, battery, temperature, and GPU (GPU hides gracefully when unsupported).
-- **Runs as an accessory app** — lives in the menu bar with no Dock icon by default;
-  a Dock icon appears only while the dashboard window is open.
+- **Glance popup** — click a menu bar item for a compact Control Center–style popup:
+  every metric as a tab, with its own history chart, one click away. Settings and Quit
+  are available from the same panel.
+- **Settings panel** — the only full window, opened on demand for appearance, refresh,
+  units, menu bar metrics, launch-at-login, and updates.
+- **Runs silently as an accessory app** — SanePeek starts without a window and never
+  appears in the Dock; the menu bar is its home.
 - **Configurable** — refresh rate (1s/2s/5s), decimal or binary byte units, Celsius or
   Fahrenheit, light/dark/system appearance, and launch at login.
 - **Genuinely light**: idle CPU and memory footprint are treated as a feature, not an
@@ -116,7 +102,7 @@ xcodebuild test -project SanePeek.xcodeproj -scheme SanePeek -destination 'platf
 - **SwiftUI views** render presentation-ready models — no direct system calls.
 - **View models** (`@Observable`) adapt engine snapshots into per-card display state.
 - **`MetricsEngine`** is the single actor that owns polling, cadence, and bounded
-  history for every metric, shared by the dashboard, popups, and menu bar items.
+  history for every metric, shared by the compact popovers and menu bar items.
 - **Metric readers** wrap the underlying system APIs (Mach host stats, IOKit,
   SystemConfiguration, `NWPathMonitor`, …) behind small, independently testable
   protocols.
@@ -124,11 +110,11 @@ xcodebuild test -project SanePeek.xcodeproj -scheme SanePeek -destination 'platf
 ## Performance
 
 SanePeek is built on the premise that a system monitor should not itself show up as a
-system load. In its default configuration (one menu bar item, dashboard closed) it runs
+system load. In its default configuration (one menu bar item, popover closed) it runs
 at roughly **0.25% average CPU** and a **24 MB** physical footprint, measured over a
-120-second steady-state window on a Release build. Both the dashboard window and any
-closed menu bar popup are fully inert — no rendering work happens for content the user
-can't see — and polling pauses outright when the display sleeps or the session locks.
+120-second steady-state window on a Release build. Settings and any closed menu bar
+popup are fully inert — no rendering work happens for content the user can't see — and
+polling pauses outright when the display sleeps or the session locks.
 
 With two menu bar items enabled (CPU + Temperature), a head-to-head against
 [Stats](https://github.com/exelban/stats) — both Release builds, both idle, sampled for

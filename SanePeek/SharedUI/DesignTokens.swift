@@ -15,7 +15,7 @@ nonisolated enum MetricCornerRadius {
 /// grid is sized around it, so letting it scale with Dynamic Type would break
 /// layout. `secondaryMetric`/`label` are ordinary text and scale with the
 /// system text size, bounded by the `.dynamicTypeSize` clamp applied at the
-/// dashboard/settings roots.
+/// settings root.
 nonisolated enum MetricTypography {
     static let primaryMetric = Font.system(size: 52, weight: .semibold, design: .rounded)
     static let secondaryMetric = Font.system(.subheadline, design: .rounded).weight(.medium)
@@ -79,7 +79,7 @@ nonisolated enum MetricPalette {
 /// Tuning shared by every history chart — the CPU/Memory hero cards, the Network card's
 /// mirrored chart, and the menu bar popup's copies of all three.
 nonisolated enum MetricChartLayout {
-    /// Matches the ring buffer capacity `MetricsEngine`/`FixtureDashboardTickFeed`
+    /// Matches the ring buffer capacity used by `MetricsEngine`/`FixtureMetricsTickFeed`
     /// retain history in, and the "60s...now" axis labels below each chart.
     static let historyWindowSize = MetricHistoryDefaults.sampleCapacity
 

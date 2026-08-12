@@ -1,24 +1,24 @@
-/// Bridges coherent `MetricsEngine` observations into the dashboard's `DashboardTick` shape.
+/// Bridges coherent `MetricsEngine` observations into the shared `MetricsTick` shape.
 /// Snapshot and histories arrive together; this adapter only performs semantic field mapping.
 @MainActor
-final class LiveDashboardTickFeed: DashboardTickFeed {
+final class LiveMetricsTickFeed: MetricsTickFeed {
     private let engine: MetricsEngine
 
     init(engine: MetricsEngine) {
         self.engine = engine
     }
 
-    func ticks() -> AsyncStream<DashboardTick> {
+    func ticks() -> AsyncStream<MetricsTick> {
         AsyncStream { continuation in
             let engine = engine
             let task = Task {
                 let observations = await engine.observations()
                 // AppState owns monitoring activity reconciliation; this adapter only bridges
-                // the engine's coherent publication into the dashboard value contract.
+                // the engine's coherent publication into the metrics value contract.
 
                 for await observation in observations {
                     continuation.yield(
-                        DashboardTick(
+                        MetricsTick(
                             snapshot: observation.snapshot,
                             cpuHistory: observation.history(for: .cpuUtilization).map(\.value),
                             cpuUserHistory: observation.history(for: .cpuUserUtilization).map(\.value),

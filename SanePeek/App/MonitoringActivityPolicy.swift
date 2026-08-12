@@ -46,7 +46,6 @@ nonisolated enum MonitoringActivityState: Equatable, Sendable {
 /// lifecycle callbacks are adapters that populate this value; they do not directly mutate the
 /// engine.
 nonisolated struct MonitoringActivityInputs: Equatable, Sendable {
-    let isDashboardVisible: Bool
     let isPopupVisible: Bool
     let enabledMenuBarMetrics: Set<MetricKind>
     let isDisplayAvailable: Bool
@@ -55,7 +54,6 @@ nonisolated struct MonitoringActivityInputs: Equatable, Sendable {
     let backgroundCadence: CadencePolicy
 
     init(
-        isDashboardVisible: Bool = false,
         isPopupVisible: Bool = false,
         enabledMenuBarMetrics: Set<MetricKind> = [],
         isDisplayAvailable: Bool = true,
@@ -63,7 +61,6 @@ nonisolated struct MonitoringActivityInputs: Equatable, Sendable {
         foregroundCadence: CadencePolicy = CadencePolicy(),
         backgroundCadence: CadencePolicy = CadencePolicy(refreshRate: .fiveSeconds)
     ) {
-        self.isDashboardVisible = isDashboardVisible
         self.isPopupVisible = isPopupVisible
         self.enabledMenuBarMetrics = enabledMenuBarMetrics
         self.isDisplayAvailable = isDisplayAvailable
@@ -72,9 +69,7 @@ nonisolated struct MonitoringActivityInputs: Equatable, Sendable {
         self.backgroundCadence = backgroundCadence
     }
 
-    var hasForegroundView: Bool {
-        isDashboardVisible || isPopupVisible
-    }
+    var hasForegroundView: Bool { isPopupVisible }
 }
 
 /// Resolves lifecycle and settings inputs into the one activity state the metrics engine should

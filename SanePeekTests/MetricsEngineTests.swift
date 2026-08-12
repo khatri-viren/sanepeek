@@ -569,9 +569,9 @@ struct MetricsEngineTests {
         await engine.stop()
     }
 
-    @Test("Live dashboard feed maps one coherent engine observation")
+    @Test("Live metrics feed maps one coherent engine observation")
     @MainActor
-    func liveDashboardFeedMapsCoherentObservation() async {
+    func liveMetricsFeedMapsCoherentObservation() async {
         let clock = SteppingClock()
         let fastScheduler = StepScheduler()
         let slowScheduler = StepScheduler()
@@ -590,7 +590,7 @@ struct MetricsEngineTests {
 
         await engine.setActiveMetrics([.cpu])
         await engine.start()
-        let stream = LiveDashboardTickFeed(engine: engine).ticks()
+        let stream = LiveMetricsTickFeed(engine: engine).ticks()
         var iterator = stream.makeAsyncIterator()
 
         await fastScheduler.waitUntilIntervalsCount(1)
@@ -599,7 +599,7 @@ struct MetricsEngineTests {
         await fastScheduler.advance()
         await fastScheduler.waitUntilIntervalsCount(2)
 
-        var tick: DashboardTick?
+        var tick: MetricsTick?
         for _ in 0..<2 {
             guard let next = await iterator.next() else { break }
             if !next.cpuHistory.isEmpty {

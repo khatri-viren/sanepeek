@@ -1,7 +1,7 @@
 /// Semantic metadata shared by the menu bar's AppKit, SwiftUI, and settings adapters.
 ///
 /// The adapters intentionally retain separate orders because status items use a compact order
-/// while the popup and settings follow the dashboard's visual grouping. This module centralizes
+/// while the popup and settings follow the monitoring grouping. This module centralizes
 /// the metric metadata without owning live state, AppKit objects, or SwiftUI layout.
 nonisolated struct MenuBarMetricDescriptor: Identifiable, Hashable, Sendable {
     let kind: MetricKind
@@ -28,7 +28,7 @@ nonisolated enum MenuBarCatalog {
         .cpu, .memory, .storage, .network, .battery, .gpu, .temperature
     ]
 
-    /// Popup rows follow the dashboard-oriented grouping rather than status-item declaration order.
+    /// Popup rows follow the monitoring-oriented grouping rather than status-item declaration order.
     static let popoverOrder: [MetricKind] = [
         .cpu, .memory, .temperature, .network, .storage, .battery, .gpu
     ]

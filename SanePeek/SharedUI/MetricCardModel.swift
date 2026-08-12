@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Presentation-ready state for one dashboard card. Built by `MetricCardMapping`
+/// Presentation-ready state for one metric row. Built by `MetricCardMapping`
 /// from a domain snapshot; `MetricCardView` only ever renders this, never a snapshot.
 nonisolated struct MetricCardModel: Identifiable, Equatable {
     let id: MetricKind

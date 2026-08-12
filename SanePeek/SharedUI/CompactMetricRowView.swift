@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A single metric row for the menu bar popup's compact glance list: icon, title, and value —
-/// no chart, unlike the dashboard's hero/generic cards, which are too large for a popup.
+/// no chart, keeping the list scannable at popup size.
 ///
 /// Doubles as a tab in the popup's side-by-side layout: `MenuBarPopoverView` wraps this in a
 /// `Button` and passes `isSelected` so the row currently driving `PopoverMetricChartView`

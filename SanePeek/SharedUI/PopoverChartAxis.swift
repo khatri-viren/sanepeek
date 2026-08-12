@@ -14,7 +14,7 @@ nonisolated enum PopoverChartAxis {
 
     /// Formats one chart value using the metric's real unit: `sparklineValues` is a fraction
     /// for cpu/gpu, raw bytes for memory, Celsius for temperature, and bytes/sec for network
-    /// (see `MetricCardMapping`/`LiveDashboardTickFeed` for where each history array comes
+    /// (see `MetricCardMapping`/`LiveMetricsTickFeed` for where each history array comes
     /// from) — storage/battery never reach here since their `sparklineValues` is always empty.
     static func label(for value: Double, kind: MetricKind, formatter: MetricFormatter) -> String {
         // Converting to `UInt64` below traps on NaN/infinite, so guard the same way

@@ -36,7 +36,7 @@ struct MenuBarPopoverCoordinatorTests {
         let appState = AppState(
             dependencies: AppDependencies(
                 runtime: .preview,
-                fixtureSnapshot: MetricFixtures.dashboard(),
+                fixtureSnapshot: MetricFixtures.baseline(),
                 settingsDefaultsSuiteName: suiteName
             )
         )

@@ -1,8 +1,8 @@
-/// One tick of dashboard data: a snapshot plus the per-kind history arrays
-/// needed to draw sparklines. Produced by any `DashboardTickFeed` —
-/// `FixtureDashboardTickFeed` for previews/UI tests, `LiveDashboardTickFeed`
+/// One tick of shared metrics data: a snapshot plus the per-kind history arrays
+/// needed to draw sparklines. Produced by any `MetricsTickFeed` —
+/// `FixtureMetricsTickFeed` for previews/UI tests, `LiveMetricsTickFeed`
 /// for the real `MetricsEngine`.
-nonisolated struct DashboardTick: Sendable, Equatable {
+nonisolated struct MetricsTick: Sendable, Equatable {
     let snapshot: MetricsSnapshot
     let cpuHistory: [Double]
     let cpuUserHistory: [Double]

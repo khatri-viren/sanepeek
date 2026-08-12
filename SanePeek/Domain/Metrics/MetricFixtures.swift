@@ -1,5 +1,5 @@
 nonisolated enum MetricFixtures {
-    static func dashboard(at timestamp: MetricTimestamp = .zero) -> MetricsSnapshot {
+    static func baseline(at timestamp: MetricTimestamp = .zero) -> MetricsSnapshot {
         MetricsSnapshot(
             timestamp: timestamp,
             cpu: CPUSnapshot(
@@ -180,11 +180,11 @@ nonisolated enum MetricFixtures {
         )
     }
 
-    /// Otherwise-healthy dashboard where only the GPU is unavailable, matching
+    /// Otherwise-healthy baseline where only the GPU is unavailable, matching
     /// most real Macs (no reliable IOAccelerator utilization counter). Used to
     /// verify the GPU card hides while its five siblings stay visible.
     static func gpuUnsupported(at timestamp: MetricTimestamp = .zero) -> MetricsSnapshot {
-        let baseline = dashboard(at: timestamp)
+        let baseline = baseline(at: timestamp)
         return MetricsSnapshot(
             timestamp: timestamp,
             cpu: baseline.cpu,
@@ -201,7 +201,7 @@ nonisolated enum MetricFixtures {
     /// report failures, so a UI test can assert both states render
     /// side by side without either masking the other.
     static func mixedFailure(at timestamp: MetricTimestamp = .zero) -> MetricsSnapshot {
-        let baseline = dashboard(at: timestamp)
+        let baseline = baseline(at: timestamp)
         return MetricsSnapshot(
             timestamp: timestamp,
             cpu: baseline.cpu,
@@ -220,7 +220,7 @@ nonisolated enum MetricFixtures {
     /// "not supported on this Mac" card state still has to render correctly rather than
     /// showing stale or misleading numbers.
     static func temperatureUnsupported(at timestamp: MetricTimestamp = .zero) -> MetricsSnapshot {
-        let baseline = dashboard(at: timestamp)
+        let baseline = baseline(at: timestamp)
         return MetricsSnapshot(
             timestamp: timestamp,
             cpu: baseline.cpu,

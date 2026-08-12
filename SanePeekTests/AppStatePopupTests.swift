@@ -59,7 +59,7 @@ struct AppStatePopupTests {
         AppState(
             dependencies: AppDependencies(
                 runtime: .preview,
-                fixtureSnapshot: MetricFixtures.dashboard(),
+                fixtureSnapshot: MetricFixtures.baseline(),
                 settingsDefaultsSuiteName: "com.sanepeek.tests.appstatepopup.\(UUID().uuidString)"
             )
         )

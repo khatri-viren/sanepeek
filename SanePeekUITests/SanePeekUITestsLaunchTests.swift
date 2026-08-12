@@ -16,15 +16,14 @@ final class SanePeekUITestsLaunchTests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testLaunchShowsDashboardRoot() throws {
+    func testLaunchStaysSilentWithoutFullWindow() throws {
         let app = XCUIApplication()
         app.launch()
 
-        let dashboard = app.descendants(matching: .any)["dashboard.root"]
-        XCTAssertTrue(dashboard.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.windows.count, 0)
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Launch Screen"
+        attachment.name = "Silent launch"
         attachment.lifetime = .keepAlways
         add(attachment)
     }

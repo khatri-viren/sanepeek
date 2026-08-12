@@ -75,6 +75,29 @@ can filter them.
   that action. When explicitly requested, inspect the final diff and status first, then commit
   only the in-scope changes and push the current branch.
 
+## Git naming and pull requests
+
+- Use lowercase, hyphen-separated branch names with a conventional type prefix: `feat/`,
+  `fix/`, `chore/`, `docs/`, `refactor/`, `test/`, `perf/`, `build/`, or `ci/` (for example,
+  `feat/process-network-metrics` or `fix/menu-bar-refresh`). Keep the description short,
+  specific, and issue-oriented; do not use spaces, underscores, ticket-only names, or vague
+  names such as `updates`.
+- Write commit messages using Conventional Commits:
+  `<type>(<optional scope>): <imperative summary>`, such as
+  `feat(metrics): add disk activity sampling` or `fix(menu-bar): preserve compact layout`.
+  Use the same type vocabulary as branch names where applicable; keep the subject concise,
+  imperative, and free of a trailing period. Add a body when context or migration details are
+  needed, and use `BREAKING CHANGE:` in the footer for intentional breaking changes.
+- Keep commits focused and logically separable. Do not mix unrelated changes, generated files,
+  or drive-by formatting with the requested work. Before committing, inspect `git diff` and
+  `git status`, run the narrowest relevant validation, and run `git diff --check`.
+- Open pull requests with a clear Conventional Commit-style title when practical, matching the
+  branch and primary change (for example, `fix(menu-bar): preserve compact layout`). The PR
+  description must explain the problem, the solution, and user-visible impact; link the issue
+  or task when one exists; list validation performed and its result; and include screenshots or
+  recordings for UI changes. Call out follow-up work, risks, configuration changes, and breaking
+  changes explicitly. Keep each PR reviewable and limited to one coherent purpose.
+
 ## Release versioning
 
 - Before triggering or cutting a release, ask the user for the exact version number to use.

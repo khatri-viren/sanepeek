@@ -1,11 +1,11 @@
 import Observation
 
-/// Exposes presentation-ready card state to `DashboardView`. Consumes
-/// whichever `DashboardTickFeed` it's handed — fixture-backed for previews
-/// and UI tests, `LiveDashboardTickFeed` for `.live` runtime.
+/// Exposes presentation-ready metric state to the compact menu-bar popover. Consumes
+/// whichever `MetricsTickFeed` it's handed — fixture-backed for previews
+/// and UI tests, `LiveMetricsTickFeed` for `.live` runtime.
 @MainActor
 @Observable
-final class DashboardViewModel {
+final class MetricsViewModel {
     private(set) var cpuCard = MetricCardMapping.cpuCard(nil, history: [])
     private(set) var cpuDetail: CPUCardDetail?
     private(set) var memoryCard = MetricCardMapping.memoryCard(nil, history: [])
@@ -17,12 +17,12 @@ final class DashboardViewModel {
     private(set) var cards: [MetricCardModel] = []
     private(set) var hasReceivedData = false
 
-    private let feed: any DashboardTickFeed
+    private let feed: any MetricsTickFeed
     private let formatterProvider: @MainActor () -> MetricFormatter
     @ObservationIgnored
     private nonisolated(unsafe) var consumeTask: Task<Void, Never>?
 
-    init(feed: any DashboardTickFeed, formatterProvider: @escaping @MainActor () -> MetricFormatter = { MetricFormatter() }) {
+    init(feed: any MetricsTickFeed, formatterProvider: @escaping @MainActor () -> MetricFormatter = { MetricFormatter() }) {
         self.feed = feed
         self.formatterProvider = formatterProvider
         start()
@@ -48,7 +48,7 @@ final class DashboardViewModel {
     /// while polling is narrowed to the menu bar's enabled subset) still invalidates every view
     /// observing that property on every tick. All the mapped types here are `Equatable`
     /// specifically to make this cheap (performance review P1).
-    private func apply(_ tick: DashboardTick) {
+    private func apply(_ tick: MetricsTick) {
         let snapshot = tick.snapshot
         let formatter = formatterProvider()
 
