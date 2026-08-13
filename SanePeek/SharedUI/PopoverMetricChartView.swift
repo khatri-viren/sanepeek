@@ -120,7 +120,16 @@ struct PopoverMetricChartView: View {
                 color: model.accentColor,
                 axisLabel: { value in axisLabel(value) }
             )
-        case .gpu, .storage, .battery:
+        case .gpu:
+            // GPU utilization is stored as a 0...1 fraction, so expose the same
+            // percentage-formatted y-axis as CPU and Memory instead of leaving the
+            // chart's readings unlabeled.
+            SparklineView(
+                values: Array(model.sparklineValues.suffix(MetricChartLayout.historyWindowSize)),
+                color: model.accentColor,
+                axisLabel: { value in axisLabel(value) }
+            )
+        case .storage, .battery:
             // These render as a plain trend — there's a single value
             // here, not a breakdown that sums to a whole.
             SparklineView(

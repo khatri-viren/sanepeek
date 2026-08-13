@@ -79,7 +79,46 @@ nonisolated struct IORegistryGPUAdapter: GPUSystemAdapter {
     }
 
     func read(at timestamp: MetricTimestamp) -> MetricResult<GPUSystemSample> {
-        .unavailable(.unsupported)
+        var iterator: io_iterator_t = 0
+        guard let matching = IOServiceMatching("IOAccelerator"),
+              IOServiceGetMatchingServices(
+                  kIOMainPortDefault,
+                  matching,
+                  &iterator
+              ) == KERN_SUCCESS
+        else {
+            return .unavailable(.temporarilyUnavailable)
+        }
+        defer {
+            IOObjectRelease(iterator)
+        }
+
+        while true {
+            let service = IOIteratorNext(iterator)
+            guard service != 0 else {
+                break
+            }
+            defer {
+                IOObjectRelease(service)
+            }
+
+            guard let properties = Self.properties(for: service),
+                  let statistics = properties["PerformanceStatistics"] as? [String: Any],
+                  let percent = Self.number(from: statistics["Device Utilization %"]),
+                  let utilization = Self.utilizationFraction(fromPercent: percent)
+            else {
+                continue
+            }
+
+            return .available(
+                GPUSystemSample(
+                    utilization: utilization,
+                    name: Self.name(for: service) ?? capability.name
+                )
+            )
+        }
+
+        return .unavailable(.temporarilyUnavailable)
     }
 
     private static func discoverCapability() -> GPUCapability {
@@ -107,22 +146,72 @@ nonisolated struct IORegistryGPUAdapter: GPUSystemAdapter {
                 IOObjectRelease(service)
             }
 
-            var nameBuffer = [CChar](repeating: 0, count: 128)
-            let result = nameBuffer.withUnsafeMutableBufferPointer { buffer in
-                IORegistryEntryGetName(service, buffer.baseAddress!)
+            if let name = Self.name(for: service) {
+                discoveredName = name
             }
-            if result == KERN_SUCCESS {
-                let nameBytes = nameBuffer
-                    .prefix(while: { $0 != 0 })
-                    .map { UInt8(bitPattern: $0) }
-                let name = String(decoding: nameBytes, as: UTF8.self)
-                if !name.isEmpty {
-                    discoveredName = name
-                    break
-                }
+
+            guard let properties = Self.properties(for: service),
+                  let statistics = properties["PerformanceStatistics"] as? [String: Any],
+                  Self.number(from: statistics["Device Utilization %"]) != nil
+            else {
+                continue
             }
+
+            return GPUCapability(isSupported: true, name: discoveredName)
         }
 
         return GPUCapability(isSupported: false, name: discoveredName)
+    }
+
+    private static func properties(for service: io_registry_entry_t) -> [String: Any]? {
+        var unmanaged: Unmanaged<CFMutableDictionary>?
+        guard IORegistryEntryCreateCFProperties(
+            service,
+            &unmanaged,
+            kCFAllocatorDefault,
+            0
+        ) == KERN_SUCCESS,
+        let unmanaged,
+        let properties = unmanaged.takeRetainedValue() as? [String: Any]
+        else {
+            return nil
+        }
+        return properties
+    }
+
+    private static func name(for service: io_registry_entry_t) -> String? {
+        var nameBuffer = [CChar](repeating: 0, count: 128)
+        let result = nameBuffer.withUnsafeMutableBufferPointer { buffer in
+            IORegistryEntryGetName(service, buffer.baseAddress!)
+        }
+        guard result == KERN_SUCCESS else {
+            return nil
+        }
+
+        let nameBytes = nameBuffer
+            .prefix(while: { $0 != 0 })
+            .map { UInt8(bitPattern: $0) }
+        let name = String(decoding: nameBytes, as: UTF8.self)
+        return name.isEmpty ? nil : name
+    }
+
+    private static func number(from value: Any?) -> Double? {
+        if let number = value as? NSNumber {
+            return number.doubleValue
+        }
+        if let value = value as? Double {
+            return value
+        }
+        if let value = value as? Int {
+            return Double(value)
+        }
+        return nil
+    }
+
+    static func utilizationFraction(fromPercent percent: Double) -> Double? {
+        guard percent.isFinite, (0...100).contains(percent) else {
+            return nil
+        }
+        return percent / 100
     }
 }
