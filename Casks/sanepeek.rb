@@ -16,8 +16,8 @@
 #
 # `version` and `sha256` are rewritten by .github/workflows/release.yml on every release.
 cask "sanepeek" do
-  version "1.2.0"
-  sha256 "41067517c1590d231b61ee93a2bf5203cec4bc17c73aeb92b710f708b05c674f"
+  version "1.2.1"
+  sha256 "b5a683296fdc31c07a86420793fd3db28af639a8b690b1eea48eff91ab1bfe62"
 
   url "https://github.com/khatri-viren/sanepeek/releases/download/v#{version}/SanePeek-#{version}.dmg"
   name "SanePeek"
