@@ -57,4 +57,26 @@ struct PopoverChartAxisTests {
         #expect(invalid.lowerBound == 0)
         #expect(invalid.upperBound == 1)
     }
+
+    @Test("Sparkline history is right-anchored on the fixed chart window")
+    func sparklineHistoryIsRightAnchored() {
+        let display = SparklineLayout.displayData(for: [10, 20, 30], windowSize: 60)
+
+        #expect(display.values == [10, 20, 30])
+        #expect(display.offset == 57)
+        #expect(display.offset + display.values.count - 1 == 59)
+        #expect(display.xUpperBound == 59)
+    }
+
+    @Test("Sparkline layout keeps only the newest finite samples")
+    func sparklineLayoutCapsAndFiltersHistory() {
+        let display = SparklineLayout.displayData(
+            for: [1, .nan, 2, .infinity, 3, 4],
+            windowSize: 3
+        )
+
+        #expect(display.values == [2, 3, 4])
+        #expect(display.offset == 0)
+        #expect(display.xUpperBound == 2)
+    }
 }
